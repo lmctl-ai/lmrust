@@ -1,0 +1,23 @@
+[package]
+name = "lmrust"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.79"
+license = "MIT"
+description = "Rust SDK for lmapi: cli.schema.v1 validation, input forms, CLI server runtime and module store"
+repository = "https://github.com/lmctl-ai/lmrust"
+readme = "README.md"
+keywords = ["cli", "schema", "llm", "validation", "lmapi"]
+categories = ["command-line-interface", "development-tools"]
+exclude = ["/.github", "/durable-memory"]
+
+[lib]
+name = "lmrust"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0.200", features = ["derive"] }
+serde_json = { version = "1.0.117", features = ["preserve_order"] }
+regex-lite = "0.1.6"
+
+[dev-dependencies]
