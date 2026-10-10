@@ -21,3 +21,7 @@ serde_json = { version = "1.0.117", features = ["preserve_order"] }
 regex-lite = "0.1.6"
 
 [dev-dependencies]
+
+[[example]]
+name = "minitool"
+path = "examples/minitool.rs"

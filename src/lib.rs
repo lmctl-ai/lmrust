@@ -39,6 +39,7 @@ pub mod interpret;
 pub mod js;
 pub mod json_form;
 pub mod publish;
+pub mod server;
 pub mod synopsis;
 pub mod types;
 pub mod validate;
