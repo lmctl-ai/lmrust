@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  # lmapi commit whose conformance vectors this lmrust revision is checked against.
+  # Bump deliberately when lmapi adds vectors.
+  LMAPI_REF: 62e3a2595ec1168dc0bbb80679f9cd8724b407c8
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout lmrust
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install stable toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+      - name: cargo clippy (all targets, all features)
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: rustdoc (no broken links)
+        run: cargo doc --locked --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  test:
+    name: Test (${{ matrix.toolchain }}, ${{ matrix.features }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, "1.79"]
+        features: [default, all-features]
+    defaults:
+      run:
+        working-directory: lmrust
+    steps:
+      - name: Checkout lmrust
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: lmrust
+
+      # The conformance suite fails (never skips) in CI when lmapi is missing.
+      - name: Checkout lmapi sibling for conformance vectors
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: lmctl-ai/lmapi
+          ref: ${{ env.LMAPI_REF }}
+          path: lmapi
+
+      - name: Install ${{ matrix.toolchain }} toolchain
+        run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal && rustup override set ${{ matrix.toolchain }}
+
+      - name: cargo test
+        run: cargo test --locked ${{ matrix.features == 'all-features' && '--all-features' || '' }}
+
+      - name: Build the example tool
+        run: cargo build --locked --examples ${{ matrix.features == 'all-features' && '--all-features' || '' }}
+
+  conformance:
+    name: lmapi conformance vectors
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lmrust
+    steps:
+      - name: Checkout lmrust
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: lmrust
+
+      - name: Checkout lmapi sibling for conformance vectors
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: lmctl-ai/lmapi
+          ref: ${{ env.LMAPI_REF }}
+          path: lmapi
+
+      - name: Install stable toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      # Run directly (no pipe) so cargo's exit code is the step's result.
+      - name: Run every vector (validate, argv, interpret, publish, prompt, spec, fixtures)
+        run: cargo test --locked --all-features --test conformance -- --nocapture
