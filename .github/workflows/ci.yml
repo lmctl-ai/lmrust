@@ -50,7 +50,8 @@ jobs:
       fail-fast: false
       matrix:
         toolchain: [stable, "1.79"]
-        features: [default, all-features]
+        # no-default-features: no preserve_order (how embedding binaries with sorted-key JSON use lmrust).
+        features: [default, all-features, no-default-features]
     defaults:
       run:
         working-directory: lmrust
@@ -72,10 +73,14 @@ jobs:
         run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal && rustup override set ${{ matrix.toolchain }}
 
       - name: cargo test
-        run: cargo test --locked ${{ matrix.features == 'all-features' && '--all-features' || '' }}
+        run: cargo test --locked ${{ matrix.features == 'all-features' && '--all-features' || matrix.features == 'no-default-features' && '--no-default-features' || '' }}
+
+      - name: cargo test (no default features, module store)
+        if: matrix.features == 'no-default-features'
+        run: cargo test --locked --no-default-features --features modules
 
       - name: Build the example tool
-        run: cargo build --locked --examples ${{ matrix.features == 'all-features' && '--all-features' || '' }}
+        run: cargo build --locked --examples ${{ matrix.features == 'all-features' && '--all-features' || matrix.features == 'no-default-features' && '--no-default-features' || '' }}
 
   conformance:
     name: lmapi conformance vectors

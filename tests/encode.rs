@@ -136,6 +136,8 @@ fn undefined_params_are_omitted() {
     assert_eq!(argv, vec!["--wip"]);
 }
 
+// Asserts insertion-ordered output: needs the `preserve_order` feature (on by default).
+#[cfg(feature = "preserve_order")]
 #[test]
 fn booleans_use_k_and_no_k() {
     let argv = encode_argv(

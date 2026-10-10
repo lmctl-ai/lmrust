@@ -32,12 +32,21 @@ Modules mirror lmts files one to one:
 
 ## Decisions
 
-- **Values are `serde_json::Value`; records are `lmrust::Record`** (a `serde_json::Map`
-  with `preserve_order`), so key order follows insertion like a JS object. lmts relies on it
+- **Values are `serde_json::Value`; records are `lmrust::Record`** (a `serde_json::Map`;
+  with the default feature `preserve_order` it keeps insertion order like a JS object). lmts relies on it
   in `encode_argv` (flag order), `encode_json`, published documents and error envelopes.
 - **Results**: every parser/validator returns `Outcome<T> = Result<T, Vec<ValidationIssue>>`
   (lmts `Result<T>`); the throwing lmts wrappers (`validateParams`, `parseJsonInput`, ...)
   return `Result<T, SchemaValidationError>` with the same `details` record.
+- **`preserve_order` is a default feature, not a hard dependency setting** (0.1.1). Cargo unifies
+  features across a binary, so forcing `serde_json/preserve_order` changed the key order of every
+  `serde_json::Value` an embedding tool printed: lmprobe's legacy goldens (sorted keys) broke when
+  it embedded lmrust 0.1.0. Hosts with sorted-key output use `default-features = false`; lmrust then
+  behaves the same except that maps it builds iterate in sorted order. Tests that assert insertion
+  order are gated on the feature (`encode_edge_cases`, `booleans_use_k_and_no_k`,
+  `print_result_formats_json_to_stdout`, the `encode_argv` doc-test); the `meta.json` layout tests
+  read key order from the file text, so they hold either way. CI runs default, `--all-features`,
+  `--no-default-features` and `--no-default-features --features modules`.
 - **Synchronous everywhere** (no async runtime): `run_cli` and handlers are sync; process
   execution uses `std::process` with a polling deadline and an `AtomicBool` cancel flag in
   place of an `AbortSignal`.

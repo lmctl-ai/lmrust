@@ -613,25 +613,14 @@ fn install_happy_path_layout_meta_and_permissions() {
     assert_eq!(fs::read(dir.join("cli.schema.dev.json")).unwrap(), body);
 
     // meta.json: exact keys, order and formatting (JSON.stringify(meta, null, 2) + "\n").
-    let expected = json!({
-        "spec": "@lmctl-ai/mytool#dev",
-        "url": "https://raw.githubusercontent.com/lmctl-ai/mytool/HEAD/cli.schema.dev.json",
-        "sha256": sha_hex(&body),
-        "fetched_at": "2026-10-10T10:00:00.000Z",
-        "last_checked": "2026-10-10T10:00:00.000Z",
-        "etag": "\"e1\"",
-        "channel": "dev",
-        "tool": "mytool",
-        "version": "1.0.0",
-        "bytes": body.len(),
-    });
-    let meta_text = fs::read_to_string(dir.join("meta.json")).unwrap();
-    assert_eq!(
-        meta_text,
-        format!("{}\n", serde_json::to_string_pretty(&expected).unwrap())
+    let expected = format!(
+        "{{\n  \"spec\": \"@lmctl-ai/mytool#dev\",\n  \"url\": \"https://raw.githubusercontent.com/lmctl-ai/mytool/HEAD/cli.schema.dev.json\",\n  \"sha256\": \"{}\",\n  \"fetched_at\": \"2026-10-10T10:00:00.000Z\",\n  \"last_checked\": \"2026-10-10T10:00:00.000Z\",\n  \"etag\": \"\\\"e1\\\"\",\n  \"channel\": \"dev\",\n  \"tool\": \"mytool\",\n  \"version\": \"1.0.0\",\n  \"bytes\": {}\n}}\n",
+        sha_hex(&body),
+        body.len()
     );
-    let parsed: Value = serde_json::from_str(&meta_text).unwrap();
-    let keys: Vec<&str> = parsed.as_object().unwrap().keys().map(String::as_str).collect();
+    let meta_text = fs::read_to_string(dir.join("meta.json")).unwrap();
+    assert_eq!(meta_text, expected);
+    let keys = keys_in_file_order(&meta_text);
     assert_eq!(
         keys,
         vec![
@@ -666,8 +655,9 @@ fn install_meta_omits_etag_and_defaults_version_to_unknown() {
     let out = install("@owner/repo", &iopts(t.path(), &f)).unwrap();
     assert_eq!(out.entry.version, None);
     assert_eq!(out.entry.etag, None);
-    let meta: Value = serde_json::from_str(&fs::read_to_string(out.entry.dir.join("meta.json")).unwrap()).unwrap();
-    let keys: Vec<&str> = meta.as_object().unwrap().keys().map(String::as_str).collect();
+    let meta_text = fs::read_to_string(out.entry.dir.join("meta.json")).unwrap();
+    let meta: Value = serde_json::from_str(&meta_text).unwrap();
+    let keys = keys_in_file_order(&meta_text);
     assert_eq!(
         keys,
         vec![
@@ -1805,4 +1795,13 @@ fn ureq_fetcher_refuses_non_https_urls_before_any_io() {
         Err(FetchError::Network(m)) => assert!(m.contains("refusing non-HTTPS URL"), "{m}"),
         other => panic!("expected a refusal, got {other:?}"),
     }
+}
+
+/// Top-level keys of a JSON object in the order they appear in its text (independent of how
+/// serde_json orders a parsed map, i.e. of the `preserve_order` feature).
+fn keys_in_file_order(text: &str) -> Vec<String> {
+    let parsed: Value = serde_json::from_str(text).unwrap();
+    let mut keys: Vec<String> = parsed.as_object().unwrap().keys().cloned().collect();
+    keys.sort_by_key(|k| text.find(&format!("\"{k}\":")).expect("key in text"));
+    keys
 }

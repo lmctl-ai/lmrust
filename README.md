@@ -114,7 +114,21 @@ assert_eq!(issues[0].suggestion.as_deref(), Some("message"));
 | Feature | Default | Adds | Dependencies |
 |---|---|---|---|
 | (core) | yes | types, validate, argv/JSON/GraphQL forms, encode, help, publish, interpret, version, `server` | serde, serde_json (`preserve_order`), regex-lite |
+| `preserve_order` | yes | insertion-ordered JSON objects, as lmts (`serde_json/preserve_order`) | (feature of serde_json) |
 | `modules` | no | `lmrust::modules`: the `@owner/repo[#latest\|#dev]` schema store | + ureq (rustls, HTTPS only), sha2 |
+
+**Embedding in a binary with its own JSON output:** Cargo unifies features, so the default
+`preserve_order` also switches every `serde_json::Value` the host binary prints from sorted keys
+to insertion order. A tool whose existing output relies on sorted keys (golden files, byte-stable
+envelopes) depends on lmrust with `default-features = false`:
+
+```toml
+lmrust = { git = "https://github.com/lmctl-ai/lmrust", tag = "v0.1.1", default-features = false }
+```
+
+Everything works the same without it; only the key order of JSON objects lmrust builds (e.g. the
+order `encode_argv` emits flags in, or keys inside `data` records) follows sorted order instead of
+insertion order.
 
 No async runtime anywhere. MSRV: Rust 1.79 (CI runs the suite on 1.79 and stable).
 

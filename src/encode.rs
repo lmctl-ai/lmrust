@@ -69,6 +69,7 @@ fn argv_value(kind: ParamType, value: &Value) -> String {
 ///     .param(ParamSpec::new("merges", ParamType::Boolean).optional());
 /// let params = json!({"maxCount": 5, "author": ["-ann", "bo"], "merges": false});
 /// let argv = encode_argv(&op, params.as_object().unwrap(), EncodeArgvOptions::default());
+/// # #[cfg(feature = "preserve_order")] // flag order follows the params' key order
 /// assert_eq!(argv, ["--max-count=5", "--author=-ann", "--author=bo", "--no-merges"]);
 /// // Round trip through the server-side parser.
 /// assert_eq!(&parse_argv_form(&argv, &op, &[]).unwrap().params, params.as_object().unwrap());

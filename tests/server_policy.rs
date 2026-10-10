@@ -3,8 +3,7 @@
 //! policy (`checkPolicy`, `isDryRunResult`).
 
 use lmrust::server::{
-    check_policy, envelope_value, is_dry_run_result, print_error, print_result, CheckContext, CliError, ErrorCode,
-    Policy,
+    check_policy, envelope_value, is_dry_run_result, print_error, CheckContext, CliError, ErrorCode, Policy,
 };
 use lmrust::Access;
 use serde_json::{json, Value};
@@ -104,10 +103,12 @@ fn to_cli_error_conversions() {
 
 // describe('server/output')
 
+// Asserts insertion-ordered output: needs the `preserve_order` feature (on by default).
+#[cfg(feature = "preserve_order")]
 #[test]
 fn print_result_formats_json_to_stdout() {
     let mut out = Vec::new();
-    print_result(&mut out, &json!({ "success": true, "count": 42 }));
+    lmrust::server::print_result(&mut out, &json!({ "success": true, "count": 42 }));
     let text = String::from_utf8(out).unwrap();
     assert!(text.ends_with('\n'));
     assert_eq!(

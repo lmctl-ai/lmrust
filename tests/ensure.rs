@@ -335,7 +335,9 @@ fn stale_304_bumps_last_checked_and_etag_only() {
     ] {
         assert_eq!(meta[key], meta_before[key], "{key}");
     }
-    let keys: Vec<&str> = meta.as_object().unwrap().keys().map(String::as_str).collect();
+    // Key order of the file itself (independent of how serde_json orders a parsed map).
+    let mut keys: Vec<&str> = meta.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_by_key(|k| meta_text.find(&format!("\"{k}\":")).expect("key in meta.json"));
     assert_eq!(
         keys,
         vec![

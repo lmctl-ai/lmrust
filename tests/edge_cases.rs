@@ -207,6 +207,8 @@ fn type_names() {
     assert_eq!(p.default, Some(Value::Null));
 }
 
+// Asserts insertion-ordered output: needs the `preserve_order` feature (on by default).
+#[cfg(feature = "preserve_order")]
 #[test]
 fn encode_edge_cases() {
     let op = OperationSchema::new("op")
