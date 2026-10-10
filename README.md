@@ -55,6 +55,27 @@ $ NOTES_READONLY=1 notes add --text hi   # READONLY_VIOLATION envelope, exit 6
 $ notes add                              # VALIDATION_ERROR envelope, exit 2
 ```
 
+**Native CLIs** (a clap tool that implements lmapi itself, lmapi protocol 6.1) keep their own
+parser for everything that is not lmapi-shaped:
+
+```rust,no_run
+# use lmrust::server::{maybe_run_cli, CliSpec, ErrorCode, CliError};
+# use lmrust::InputForm;
+let spec = CliSpec::with_policy("probe")
+    .version(env!("CARGO_PKG_VERSION"))   // no .product(): the tool is its own product
+    .without_global("format")             // the tool owns --format
+    .inputs([InputForm::Flags, InputForm::Json]);
+let args: Vec<String> = std::env::args().skip(1).collect();
+if let Some(code) = maybe_run_cli(&spec, args.clone()) {
+    std::process::exit(code); // --schema, --input-json, <published op> ..., --explain <op>
+}
+// `probe --help`, `probe` and every other argv: the tool's own clap parser runs here.
+# let _ = CliError::new(ErrorCode::NotFound, "x").tool_code("E_NXDOMAIN"); // data.tool_code
+```
+
+The guard rule, configurable globals, `inputs` subsets and `tool_code` are described in
+[durable-memory/server-runtime.md](durable-memory/server-runtime.md#native-tools-lmapi-protocol-61-lmrust-additions).
+
 A published document can be served directly: `CliSpec::from_document_with_policy(&doc).handle("add", handler)`.
 A clap-based binary embeds the runner without a wrapper by passing its raw arguments
 (`std::env::args().skip(1)`, or an `#[command(external_subcommand)]` vector). The complete
@@ -116,6 +137,7 @@ No async runtime anywhere. MSRV: Rust 1.79 (CI runs the suite on 1.79 and stable
 | `checkProductVersion` | `server::check_product_version` | same cache, PATH rules and messages |
 | `./modules` (store) | `modules` (feature) | same layout and `meta.json`; `Fetcher` trait instead of `fetch` |
 | `./validate` light entry | (not needed) | the core has no heavy dependencies |
+| (none) | `is_lmapi_invocation`, `maybe_run_cli`, `without_global` / `rename_global`, `inputs([...])`, `CliError::tool_code` | lmrust additions for native tools (lmapi protocol 3 and 6.1) |
 
 Known gaps and deliberate differences are listed in
 [durable-memory/index.md](durable-memory/index.md#known-limitations).
