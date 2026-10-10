@@ -58,6 +58,21 @@ fn argv_value(kind: ParamType, value: &Value) -> String {
 
 /// Encode params as an argv array (op name not included). Values use `--k=v` so they may
 /// start with `-` or contain anything; booleans use `--k` / `--no-k`; multi params repeat.
+///
+/// ```
+/// use lmrust::{encode_argv, parse_argv_form, EncodeArgvOptions, OperationSchema, ParamSpec, ParamType, Occurs};
+/// use serde_json::json;
+///
+/// let op = OperationSchema::new("log")
+///     .param(ParamSpec::new("maxCount", ParamType::Number).optional())
+///     .param(ParamSpec::new("author", ParamType::String).occurs(Occurs::ZeroOrMore))
+///     .param(ParamSpec::new("merges", ParamType::Boolean).optional());
+/// let params = json!({"maxCount": 5, "author": ["-ann", "bo"], "merges": false});
+/// let argv = encode_argv(&op, params.as_object().unwrap(), EncodeArgvOptions::default());
+/// assert_eq!(argv, ["--max-count=5", "--author=-ann", "--author=bo", "--no-merges"]);
+/// // Round trip through the server-side parser.
+/// assert_eq!(&parse_argv_form(&argv, &op, &[]).unwrap().params, params.as_object().unwrap());
+/// ```
 pub fn encode_argv(schema: &OperationSchema, params: &Record, opts: EncodeArgvOptions) -> Vec<String> {
     let mut out = Vec::new();
     let mut trailing = Vec::new();

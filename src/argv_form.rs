@@ -1,6 +1,6 @@
 //! Array-based argv (flags) form (lmts `argv-form.ts`). The shell already split the
 //! command line, so every element is taken as is. Value types come from the schema,
-//! never from the token shape; required and enum checks are left to [`crate::validate`].
+//! never from the token shape; required and enum checks are left to [`validate()`](crate::validate()).
 //!
 //! ```text
 //! --k v | --k=v     value (may contain spaces, '=', JSON, or start with '-')
@@ -129,6 +129,21 @@ fn register<'a>(lookup: &mut HashMap<String, (&'a ParamSpec, Scope)>, spec: &'a 
 
 /// Parse an argv array (op name already removed) against an op schema and the runner's
 /// global flags. Collects every issue instead of stopping at the first.
+///
+/// ```
+/// use lmrust::{parse_argv_form, OperationSchema, ParamSpec, ParamType, Occurs};
+/// use serde_json::json;
+///
+/// let op = OperationSchema::new("add")
+///     .param(ParamSpec::new("paths", ParamType::String).occurs(Occurs::OneOrMore).positional())
+///     .param(ParamSpec::new("force", ParamType::Boolean).optional());
+/// let globals = [ParamSpec::new("dryrun", ParamType::Boolean).optional()];
+/// let argv: Vec<String> = ["a.txt", "--force", "--dryrun", "--", "--b.txt"].map(String::from).to_vec();
+/// let v = parse_argv_form(&argv, &op, &globals).unwrap();
+/// assert_eq!(v.params["paths"], json!(["a.txt", "--b.txt"]));
+/// assert_eq!(v.params["force"], json!(true));
+/// assert_eq!(v.globals["dryrun"], json!(true));
+/// ```
 pub fn parse_argv_form(argv: &[String], schema: &OperationSchema, globals: &[ParamSpec]) -> Outcome<ArgvFormValue> {
     let mut params = Record::new();
     let mut global_values = Record::new();

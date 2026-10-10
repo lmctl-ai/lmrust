@@ -311,6 +311,25 @@ where
 }
 
 /// [`run_cli`] with an explicit output stream and environment (embedding and tests).
+///
+/// ```
+/// use lmrust::server::{run_cli_io, CliSpec, OpDef};
+/// use lmrust::Access;
+/// use serde_json::{json, Value};
+/// use std::collections::HashMap;
+///
+/// let spec = CliSpec::with_policy("echo")
+///     .op(OpDef::new("say", Access::Read, "Echo flags back", |params, _| Ok(Value::Object(params.clone()))));
+/// let mut out = Vec::new();
+/// let argv: Vec<String> = ["say", "--word", "hi"].map(String::from).to_vec();
+/// let code = run_cli_io(&spec, &argv, &mut out, &HashMap::new());
+/// assert_eq!(code, 0);
+/// assert_eq!(serde_json::from_slice::<Value>(&out).unwrap(), json!({"word": "hi"}));
+///
+/// let mut out = Vec::new();
+/// let code = run_cli_io(&spec, &["nope".to_string()], &mut out, &HashMap::new());
+/// assert_eq!(code, 2); // INVALID_REQUEST envelope on stdout
+/// ```
 pub fn run_cli_io<C>(spec: &CliSpec<C>, argv: &[String], out: &mut dyn Write, env: &HashMap<String, String>) -> i32 {
     Runner { spec, out, env }.run(argv)
 }

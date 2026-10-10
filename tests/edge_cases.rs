@@ -430,7 +430,10 @@ fn cli_document_error_paths() {
     // flags error is reported (lmts behaves the same; its "invalid arguments" branch is unreachable).
     let (code, out) = run(&spec, &["ping", "--input-json", "{}", "--dryrun=maybe"], &[]);
     assert_eq!(code, 2);
-    assert_eq!(envelope(&out)["error"]["data"]["issues"][0]["code"], json!("TYPE_MISMATCH"));
+    assert_eq!(
+        envelope(&out)["error"]["data"]["issues"][0]["code"],
+        json!("TYPE_MISMATCH")
+    );
     // `--` makes the next token the op; a trailing `--` names none.
     let (code, out) = run(&spec, &["--dryrun", "--", "ping"], &[]);
     assert_eq!((code, envelope(&out)), (0, json!({"pong": null})));

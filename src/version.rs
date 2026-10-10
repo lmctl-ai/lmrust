@@ -87,6 +87,13 @@ pub fn is_valid_supported_range(range: &str) -> bool {
 }
 
 /// Whether `version` satisfies every comparator of `range` (false when either is malformed).
+///
+/// ```
+/// use lmrust::satisfies;
+/// assert!(!satisfies("git version 2.43.0", ">=2.43.0 <3.0.0")); // the version must lead the text
+/// assert!(satisfies("2.43.0.windows.1", ">=2.43.0 <3.0.0"));
+/// assert!(!satisfies("3.0.0", ">=2.43.0 <3.0.0"));
+/// ```
 pub fn satisfies(version: &str, range: &str) -> bool {
     let (Some(v), Some(cs)) = (parse_version(version), comparators(range)) else {
         return false;

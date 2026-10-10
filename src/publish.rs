@@ -27,6 +27,14 @@ pub struct PublishOptions {
 }
 
 /// Build the publishable document for a tool from every op that declares a schema.
+///
+/// ```
+/// use lmrust::{parse_published_schema, publish_schema, OperationSchema, PublishOptions};
+/// let doc = publish_schema("git2", vec![OperationSchema::new("status")], PublishOptions::default());
+/// assert_eq!(doc.version.as_deref(), Some("unknown"));
+/// let json = serde_json::to_value(&doc).unwrap();
+/// assert!(parse_published_schema(&json).is_ok());
+/// ```
 pub fn publish_schema(tool: &str, operations: Vec<OperationSchema>, opts: PublishOptions) -> PublishedCliSchema {
     PublishedCliSchema {
         schema: "cli.schema.v1".into(),

@@ -30,6 +30,13 @@ pub fn is_effectful(op: &OperationSchema) -> bool {
 /// quotes. Refused (`SHELL_SYNTAX`): unquoted `; & | < > ( ) { } $` and backtick,
 /// newline/CR/NUL, unterminated quotes, unquoted globs `* ? [`, words starting with an
 /// unquoted `~` or `#`, and a leading `NAME=value` assignment. Nothing is ever expanded.
+///
+/// ```
+/// use lmrust::tokenize_simple_command;
+/// assert_eq!(tokenize_simple_command(r#"git2 commit -m 'a b' --x="c d""#).unwrap(), ["git2", "commit", "-m", "a b", "--x=c d"]);
+/// let refused = tokenize_simple_command("git2 status && rm -rf ~").unwrap_err();
+/// assert!(refused.iter().all(|i| i.code.as_str() == "SHELL_SYNTAX"));
+/// ```
 pub fn tokenize_simple_command(line: &str) -> Outcome<Vec<String>> {
     let mut issues: Vec<ValidationIssue> = Vec::new();
     let syntax = |message: String, issues: &mut Vec<ValidationIssue>| {

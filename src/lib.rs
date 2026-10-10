@@ -30,6 +30,11 @@
 //! assert_eq!(params["amend"], json!(true));
 //! ```
 
+/// The README's examples, compiled and run as doc-tests.
+#[doc = include_str!("../README.md")]
+#[cfg(doctest)]
+pub struct ReadmeDoctests;
+
 pub mod argv_form;
 pub mod encode;
 pub mod graphql_form;
