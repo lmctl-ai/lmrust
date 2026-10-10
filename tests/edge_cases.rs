@@ -513,3 +513,31 @@ fn cli_error_conversions() {
     .unwrap();
     assert!(!ok.unwrap().contains_key("command"));
 }
+
+#[test]
+fn array_param_enum_applies_to_each_default_item() {
+    let doc = |param: Value| {
+        json!({"schema": "cli.schema.v1", "tool": "probe", "policy": {"dryrun": true, "readonly": true},
+               "inputs": ["flags", "json"], "operations": [{"name": "find", "access": "read", "params": [param]}]})
+    };
+    let cols = json!(["name", "lastmod", "size", "type"]);
+    // Valid: every item of an array default is in the enum (occurs * / + and type array).
+    for ok in [
+        json!({"name": "display", "type": "string", "occurs": "*", "enum": cols, "default": ["name", "size"]}),
+        json!({"name": "display", "type": "string", "occurs": "+", "enum": cols, "default": ["size"]}),
+        json!({"name": "display", "type": "array", "items": "string", "enum": cols, "default": []}),
+    ] {
+        assert!(parse_published_schema(&doc(ok.clone())).is_ok(), "{ok}");
+    }
+    // Invalid: an item outside the enum is TYPE_MISMATCH, like a scalar default outside its enum.
+    for bad in [
+        json!({"name": "display", "type": "string", "occurs": "*", "enum": cols, "default": ["name", "owner"]}),
+        json!({"name": "display", "type": "array", "items": "string", "enum": cols, "default": ["color"]}),
+        json!({"name": "display", "type": "string", "occurs": "?", "enum": cols, "default": "owner"}),
+        json!({"name": "display", "type": "string", "occurs": "*", "enum": cols, "default": "name"}),
+    ] {
+        let issues = parse_published_schema(&doc(bad.clone())).unwrap_err();
+        let codes: Vec<IssueCode> = issues.iter().map(|i| i.code).collect();
+        assert_eq!(codes, [IssueCode::TypeMismatch], "{bad}");
+    }
+}

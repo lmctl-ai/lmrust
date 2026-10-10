@@ -153,17 +153,17 @@ fn default_matches(
     occurs: Option<&str>,
     allowed: Option<&[Value]>,
 ) -> bool {
-    if let Some(allowed) = allowed.filter(|a| !a.is_empty()) {
-        if !allowed.iter().any(|a| js::strict_eq(a, val)) {
-            return false;
-        }
-    }
+    // An enum constrains each value: every item of an array default, or the scalar default.
+    let in_enum = |v: &Value| match allowed.filter(|a| !a.is_empty()) {
+        Some(allowed) => allowed.iter().any(|a| js::strict_eq(a, v)),
+        None => true,
+    };
     if occurs == Some("+") || occurs == Some("*") || kind == "array" {
         let Value::Array(list) = val else { return false };
         let elem = items.unwrap_or(if kind == "array" { "string" } else { kind });
-        return list.iter().all(|i| scalar_matches(i, elem));
+        return list.iter().all(|i| in_enum(i) && scalar_matches(i, elem));
     }
-    scalar_matches(val, kind)
+    in_enum(val) && scalar_matches(val, kind)
 }
 
 struct Checker {

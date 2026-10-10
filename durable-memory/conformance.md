@@ -15,8 +15,11 @@
   `suggestion`), never by message text; matched issues must have a non-empty message,
   synopsis and usage. lmrust also checks `param`/`op` on interpret vectors, where lmts only
   checks `code` and `suggestion`.
-- **Counts** (lmapi `62e3a25`): validate 22/22, argv 14/14, interpret 40/40, publish 23/23,
-  prompt 2/2, spec 18/18, fixtures 3/3. `cargo test --all-features --test conformance -- --nocapture`
-  prints them per file.
+- **Counts** (lmapi `c7768fb` plus branch `array-enum-default` `26bfb30`): validate 22/22, argv 14/14,
+  interpret 40/40, publish 29/29, prompt 2/2, spec 18/18, fixtures 3/3.
+  `cargo test --all-features --test conformance -- --nocapture` prints them per file.
+- **Enum defaults**: an `enum` constrains each value of a default: the scalar, or every item of an
+  array default (`occurs` `+`/`*` or `type: array`); a mismatch is `TYPE_MISMATCH`. lmts and lmrust
+  0.1.0 compared the whole array with the enum and rejected valid documents.
 - The harness was checked against deliberate mutations (suggestion distance, enum check):
   both made it fail.
