@@ -135,7 +135,12 @@ fn detect(product: &ProductInfo, options: &CheckProductVersionOptions<'_>) -> Pr
     };
     let env: HashMap<String, String> = options.env.clone().unwrap_or_else(|| std::env::vars().collect());
     let cmd_name = &detect.argv[0];
-    let path_var = env.get("PATH").cloned().unwrap_or_default();
+    // `options.env.PATH ?? process.env.PATH`, as lmts.
+    let path_var = env
+        .get("PATH")
+        .cloned()
+        .or_else(|| std::env::var("PATH").ok())
+        .unwrap_or_default();
     let Some(bin) = find_executable_on_path(cmd_name, &path_var) else {
         return Err(fail(
             format!(

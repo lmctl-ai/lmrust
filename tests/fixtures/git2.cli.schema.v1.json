@@ -1,0 +1,1714 @@
+{
+  "schema": "cli.schema.v1",
+  "tool": "git2",
+  "version": "0.1.0",
+  "policy": {
+    "dryrun": true,
+    "readonly": true
+  },
+  "inputs": [
+    "flags",
+    "json",
+    "graphql"
+  ],
+  "operations": [
+    {
+      "name": "init",
+      "access": "write",
+      "description": "Initialize a new git repository",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "description": "Directory to initialize (created if needed)"
+        },
+        {
+          "name": "initialBranch",
+          "type": "string",
+          "occurs": "?",
+          "description": "Initial branch name (default: main)"
+        },
+        {
+          "name": "bare",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Create a bare repository"
+        }
+      ]
+    },
+    {
+      "name": "clone",
+      "access": "write",
+      "description": "Clone a remote repository",
+      "params": [
+        {
+          "name": "remoteUrl",
+          "type": "string",
+          "description": "Remote repository URL"
+        },
+        {
+          "name": "localPath",
+          "type": "string",
+          "description": "Local path for the clone"
+        },
+        {
+          "name": "branch",
+          "type": "string",
+          "occurs": "?",
+          "description": "Branch to checkout"
+        },
+        {
+          "name": "depth",
+          "type": "number",
+          "occurs": "?",
+          "description": "Shallow clone depth"
+        },
+        {
+          "name": "bare",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Clone as bare repository"
+        },
+        {
+          "name": "mirror",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Clone as mirror (implies bare)"
+        }
+      ]
+    },
+    {
+      "name": "status",
+      "access": "read",
+      "description": "Show working tree status",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "includeUntracked",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Include untracked files (default true)"
+        },
+        {
+          "name": "ignoreSubmodules",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Ignore submodules"
+        }
+      ]
+    },
+    {
+      "name": "clean",
+      "access": "write",
+      "description": "Remove untracked files / directories",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Actually delete (git -f)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "git's own -n: show what would be removed"
+        },
+        {
+          "name": "directories",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Include untracked directories (git -d)"
+        },
+        {
+          "name": "ignored",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Include ignored files (git -x)"
+        }
+      ]
+    },
+    {
+      "name": "add",
+      "access": "write",
+      "description": "Stage files",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "paths",
+          "type": "array",
+          "items": "string",
+          "occurs": "*",
+          "description": "Array of paths to stage"
+        },
+        {
+          "name": "all",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Stage all changes"
+        },
+        {
+          "name": "update",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Update tracked files only"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Force add ignored files"
+        }
+      ]
+    },
+    {
+      "name": "reset",
+      "access": "write",
+      "description": "Reset HEAD / unstage paths",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "occurs": "?",
+          "enum": [
+            "soft",
+            "mixed",
+            "hard",
+            "merge",
+            "keep"
+          ],
+          "description": "Reset mode (soft|mixed|hard|merge|keep)"
+        },
+        {
+          "name": "commit",
+          "type": "string",
+          "occurs": "?",
+          "description": "Commit to reset to"
+        },
+        {
+          "name": "paths",
+          "type": "array",
+          "items": "string",
+          "occurs": "*",
+          "description": "Paths to unstage"
+        }
+      ]
+    },
+    {
+      "name": "commit",
+      "access": "write",
+      "description": "Create a commit",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "description": "Commit message"
+        },
+        {
+          "name": "amend",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Amend previous commit"
+        },
+        {
+          "name": "allowEmpty",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Allow empty commit"
+        },
+        {
+          "name": "noVerify",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Skip hooks"
+        },
+        {
+          "name": "author",
+          "type": "object",
+          "occurs": "?",
+          "description": "Author {name,email} object"
+        }
+      ]
+    },
+    {
+      "name": "log",
+      "access": "read",
+      "description": "Commit history",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "maxCount",
+          "type": "number",
+          "occurs": "?",
+          "description": "Maximum commits (default 10)"
+        },
+        {
+          "name": "skip",
+          "type": "number",
+          "occurs": "?",
+          "description": "Commits to skip"
+        },
+        {
+          "name": "author",
+          "type": "string",
+          "occurs": "?",
+          "description": "Filter by author"
+        },
+        {
+          "name": "since",
+          "type": "string",
+          "occurs": "?",
+          "description": "Filter by date (from)"
+        },
+        {
+          "name": "until",
+          "type": "string",
+          "occurs": "?",
+          "description": "Filter by date (until)"
+        },
+        {
+          "name": "grep",
+          "type": "string",
+          "occurs": "?",
+          "description": "Filter by message"
+        },
+        {
+          "name": "branch",
+          "type": "string",
+          "occurs": "?",
+          "description": "Branch/ref to read"
+        },
+        {
+          "name": "file",
+          "type": "string",
+          "occurs": "?",
+          "description": "Filter by file"
+        },
+        {
+          "name": "follow",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Follow file renames"
+        }
+      ]
+    },
+    {
+      "name": "show",
+      "access": "read",
+      "description": "Show a git object (commit, tree, blob, tag)",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "object",
+          "type": "string",
+          "description": "Object to show"
+        },
+        {
+          "name": "format",
+          "type": "string",
+          "occurs": "?",
+          "description": "'raw' for raw output"
+        },
+        {
+          "name": "stat",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Include diffstat"
+        },
+        {
+          "name": "filePath",
+          "type": "string",
+          "occurs": "?",
+          "description": "View specific file at the ref"
+        }
+      ]
+    },
+    {
+      "name": "diff",
+      "access": "read",
+      "description": "Show diffs",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "commit1",
+          "type": "string",
+          "occurs": "?",
+          "description": "First commit (default HEAD)"
+        },
+        {
+          "name": "commit2",
+          "type": "string",
+          "occurs": "?",
+          "description": "Second commit (default working tree)"
+        },
+        {
+          "name": "staged",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Diff staged changes"
+        },
+        {
+          "name": "paths",
+          "type": "array",
+          "items": "string",
+          "occurs": "*",
+          "description": "Limit diff to paths"
+        },
+        {
+          "name": "unified",
+          "type": "number",
+          "occurs": "?",
+          "description": "Context lines"
+        },
+        {
+          "name": "includeUntracked",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Diff untracked files too"
+        },
+        {
+          "name": "stat",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Summary only (diffstat)"
+        },
+        {
+          "name": "nameOnly",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Show only changed file names"
+        },
+        {
+          "name": "excludePatterns",
+          "type": "array",
+          "items": "string",
+          "occurs": "*",
+          "description": "Patterns to exclude (e.g. lock files)"
+        }
+      ]
+    },
+    {
+      "name": "branch_list",
+      "access": "read",
+      "description": "List branches",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "remote",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Remote only"
+        },
+        {
+          "name": "all",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Local+remote"
+        },
+        {
+          "name": "merged",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Filter merged"
+        },
+        {
+          "name": "noMerged",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Filter not-merged"
+        },
+        {
+          "name": "limit",
+          "type": "number",
+          "occurs": "?",
+          "description": "Cap results"
+        }
+      ]
+    },
+    {
+      "name": "branch_current",
+      "access": "read",
+      "description": "Show current branch",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        }
+      ]
+    },
+    {
+      "name": "branch_create",
+      "access": "write",
+      "description": "Create a branch",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "branchName",
+          "type": "string",
+          "description": "New branch name"
+        },
+        {
+          "name": "startPoint",
+          "type": "string",
+          "occurs": "?",
+          "description": "Start point"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Overwrite existing"
+        }
+      ]
+    },
+    {
+      "name": "branch_delete",
+      "access": "write",
+      "description": "Delete a branch",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "branchName",
+          "type": "string",
+          "description": "Branch to delete"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Force delete (-D)"
+        }
+      ]
+    },
+    {
+      "name": "branch_rename",
+      "access": "write",
+      "description": "Rename a branch",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "branchName",
+          "type": "string",
+          "description": "Current name"
+        },
+        {
+          "name": "newBranchName",
+          "type": "string",
+          "description": "New name"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Force"
+        }
+      ]
+    },
+    {
+      "name": "checkout",
+      "access": "write",
+      "description": "Checkout a branch/commit/paths",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "target",
+          "type": "string",
+          "positional": true,
+          "description": "Branch/commit to checkout"
+        },
+        {
+          "name": "createBranch",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Create new branch"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Discard changes"
+        },
+        {
+          "name": "paths",
+          "type": "array",
+          "items": "string",
+          "occurs": "*",
+          "description": "Checkout specific paths"
+        },
+        {
+          "name": "track",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Set upstream tracking"
+        }
+      ]
+    },
+    {
+      "name": "merge",
+      "access": "write",
+      "description": "Merge a branch",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "branch",
+          "type": "string",
+          "description": "Branch to merge"
+        },
+        {
+          "name": "strategy",
+          "type": "string",
+          "occurs": "?",
+          "description": "Merge strategy"
+        },
+        {
+          "name": "noFastForward",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "No fast-forward"
+        },
+        {
+          "name": "squash",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Squash"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "occurs": "?",
+          "description": "Merge message"
+        },
+        {
+          "name": "abort",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Abort in-progress merge"
+        }
+      ]
+    },
+    {
+      "name": "rebase",
+      "access": "write",
+      "description": "Rebase current branch",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "branch",
+          "type": "string",
+          "description": "Upstream branch"
+        },
+        {
+          "name": "onto",
+          "type": "string",
+          "occurs": "?",
+          "description": "Rebase onto"
+        },
+        {
+          "name": "interactive",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Interactive"
+        },
+        {
+          "name": "abort",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Abort in-progress rebase"
+        },
+        {
+          "name": "continueOp",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Continue"
+        },
+        {
+          "name": "preserveMerges",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Preserve merges"
+        }
+      ]
+    },
+    {
+      "name": "cherry_pick",
+      "access": "write",
+      "description": "Apply commits on top",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "commits",
+          "type": "array",
+          "items": "string",
+          "occurs": "+",
+          "description": "Commits to pick (array)"
+        },
+        {
+          "name": "noCommit",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Apply without committing"
+        },
+        {
+          "name": "mainline",
+          "type": "number",
+          "occurs": "?",
+          "description": "Parent number for merges"
+        },
+        {
+          "name": "strategy",
+          "type": "string",
+          "occurs": "?",
+          "description": "Merge strategy"
+        },
+        {
+          "name": "signoff",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Add Signed-off-by"
+        }
+      ]
+    },
+    {
+      "name": "remote_list",
+      "access": "read",
+      "description": "List remotes",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        }
+      ]
+    },
+    {
+      "name": "remote_get_url",
+      "access": "read",
+      "description": "Get remote URL",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "description": "Remote name"
+        }
+      ]
+    },
+    {
+      "name": "remote_add",
+      "access": "write",
+      "description": "Add a remote",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "description": "Remote name"
+        },
+        {
+          "name": "url",
+          "type": "string",
+          "description": "Remote URL"
+        }
+      ]
+    },
+    {
+      "name": "remote_remove",
+      "access": "write",
+      "description": "Remove a remote",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "description": "Remote name"
+        }
+      ]
+    },
+    {
+      "name": "remote_set_url",
+      "access": "write",
+      "description": "Set remote URL",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "description": "Remote name"
+        },
+        {
+          "name": "url",
+          "type": "string",
+          "description": "New URL"
+        },
+        {
+          "name": "push",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Set push URL separately"
+        }
+      ]
+    },
+    {
+      "name": "fetch",
+      "access": "write",
+      "description": "Fetch from a remote",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "remote",
+          "type": "string",
+          "occurs": "?",
+          "description": "Remote (default origin)"
+        },
+        {
+          "name": "prune",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Prune stale refs"
+        },
+        {
+          "name": "tags",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Fetch tags"
+        },
+        {
+          "name": "depth",
+          "type": "number",
+          "occurs": "?",
+          "description": "Shallow fetch depth"
+        }
+      ]
+    },
+    {
+      "name": "push",
+      "access": "write",
+      "description": "Push to a remote",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "remote",
+          "type": "string",
+          "occurs": "?",
+          "description": "Remote (default origin)"
+        },
+        {
+          "name": "branch",
+          "type": "string",
+          "occurs": "?",
+          "description": "Branch (default current)"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Force push"
+        },
+        {
+          "name": "forceWithLease",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Safer force push"
+        },
+        {
+          "name": "setUpstream",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Set upstream"
+        },
+        {
+          "name": "tags",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Push tags"
+        },
+        {
+          "name": "delete",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Delete remote branch"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "git's own --dry-run"
+        }
+      ]
+    },
+    {
+      "name": "pull",
+      "access": "write",
+      "description": "Pull from a remote",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "remote",
+          "type": "string",
+          "occurs": "?",
+          "description": "Remote (default origin)"
+        },
+        {
+          "name": "branch",
+          "type": "string",
+          "occurs": "?",
+          "description": "Branch (default current)"
+        },
+        {
+          "name": "rebase",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Rebase instead of merge"
+        },
+        {
+          "name": "ffOnly",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Fast-forward only"
+        }
+      ]
+    },
+    {
+      "name": "tag_list",
+      "access": "read",
+      "description": "List tags",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "limit",
+          "type": "number",
+          "occurs": "?",
+          "description": "Cap results"
+        }
+      ]
+    },
+    {
+      "name": "tag_verify",
+      "access": "read",
+      "description": "Verify a tag",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "tagName",
+          "type": "string",
+          "description": "Tag name"
+        }
+      ]
+    },
+    {
+      "name": "tag_create",
+      "access": "write",
+      "description": "Create a tag",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "tagName",
+          "type": "string",
+          "description": "Tag name"
+        },
+        {
+          "name": "commit",
+          "type": "string",
+          "occurs": "?",
+          "description": "Commit to tag"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "occurs": "?",
+          "description": "Annotation message"
+        },
+        {
+          "name": "annotated",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Create annotated tag"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Overwrite existing"
+        }
+      ]
+    },
+    {
+      "name": "tag_delete",
+      "access": "write",
+      "description": "Delete a tag",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "tagName",
+          "type": "string",
+          "description": "Tag name"
+        }
+      ]
+    },
+    {
+      "name": "stash_list",
+      "access": "read",
+      "description": "List stashes",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "limit",
+          "type": "number",
+          "occurs": "?",
+          "description": "Cap results"
+        }
+      ]
+    },
+    {
+      "name": "stash_push",
+      "access": "write",
+      "description": "Stash changes",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "occurs": "?",
+          "description": "Stash message"
+        },
+        {
+          "name": "includeUntracked",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Include untracked files"
+        },
+        {
+          "name": "keepIndex",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Keep staged changes"
+        }
+      ]
+    },
+    {
+      "name": "stash_pop",
+      "access": "write",
+      "description": "Pop a stash",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        }
+      ]
+    },
+    {
+      "name": "stash_apply",
+      "access": "write",
+      "description": "Apply a stash",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        }
+      ]
+    },
+    {
+      "name": "stash_drop",
+      "access": "write",
+      "description": "Drop a stash",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "stashRef",
+          "type": "string",
+          "occurs": "?",
+          "description": "Stash ref (e.g. stash@{0})"
+        }
+      ]
+    },
+    {
+      "name": "stash_clear",
+      "access": "write",
+      "description": "Clear all stashes",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        }
+      ]
+    },
+    {
+      "name": "worktree_list",
+      "access": "read",
+      "description": "List worktrees",
+      "params": [
+        {
+          "name": "repo",
+          "type": "string",
+          "occurs": "?",
+          "description": "Working directory (repo)"
+        }
+      ]
+    },
+    {
+      "name": "worktree_add",
+      "access": "write",
+      "description": "Add a worktree",
+      "params": [
+        {
+          "name": "repo",
+          "type": "string",
+          "occurs": "?",
+          "description": "Working directory (repo)"
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "Worktree path"
+        },
+        {
+          "name": "branch",
+          "type": "string",
+          "occurs": "?",
+          "description": "Branch name"
+        },
+        {
+          "name": "commitish",
+          "type": "string",
+          "occurs": "?",
+          "description": "Commit to checkout"
+        },
+        {
+          "name": "detach",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Detached HEAD"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Force"
+        }
+      ]
+    },
+    {
+      "name": "worktree_remove",
+      "access": "write",
+      "description": "Remove a worktree",
+      "params": [
+        {
+          "name": "repo",
+          "type": "string",
+          "occurs": "?",
+          "description": "Working directory (repo)"
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "Worktree path"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Force"
+        }
+      ]
+    },
+    {
+      "name": "worktree_prune",
+      "access": "write",
+      "description": "Prune stale worktrees",
+      "params": [
+        {
+          "name": "repo",
+          "type": "string",
+          "occurs": "?",
+          "description": "Working directory (repo)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "git's own --dry-run for prune"
+        },
+        {
+          "name": "verbose",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Detailed output"
+        }
+      ]
+    },
+    {
+      "name": "blame",
+      "access": "read",
+      "description": "Blame a file",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "file",
+          "type": "string",
+          "description": "File to blame"
+        },
+        {
+          "name": "startLine",
+          "type": "number",
+          "occurs": "?",
+          "description": "Start line"
+        },
+        {
+          "name": "endLine",
+          "type": "number",
+          "occurs": "?",
+          "description": "End line"
+        },
+        {
+          "name": "ignoreWhitespace",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Ignore whitespace"
+        }
+      ]
+    },
+    {
+      "name": "reflog",
+      "access": "read",
+      "description": "Show reflog",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "maxCount",
+          "type": "number",
+          "occurs": "?",
+          "description": "Max entries (default 50)"
+        },
+        {
+          "name": "ref",
+          "type": "string",
+          "occurs": "?",
+          "description": "Ref to read (default HEAD)"
+        }
+      ]
+    },
+    {
+      "name": "lm_status",
+      "access": "read",
+      "description": "Structured git status (porcelain v1, byte-preserving paths)",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "ignored",
+          "type": "boolean",
+          "occurs": "?",
+          "default": false,
+          "description": "Include ignored files"
+        }
+      ]
+    },
+    {
+      "name": "lm_diff",
+      "access": "read",
+      "description": "Structured unified diff with hunks and byte-preserving content",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "from",
+          "type": "string",
+          "occurs": "?",
+          "description": "From revision"
+        },
+        {
+          "name": "to",
+          "type": "string",
+          "occurs": "?",
+          "description": "To revision"
+        },
+        {
+          "name": "staged",
+          "type": "boolean",
+          "occurs": "?",
+          "description": "Diff index vs HEAD (cannot combine with `to`)"
+        },
+        {
+          "name": "paths",
+          "type": "array",
+          "items": "string",
+          "occurs": "*",
+          "description": "Limit to paths"
+        }
+      ]
+    },
+    {
+      "name": "lm_log",
+      "access": "read",
+      "description": "Structured commit log with author/committer metadata",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "revision",
+          "type": "string",
+          "occurs": "?",
+          "default": "HEAD",
+          "description": "Starting revision (default HEAD)"
+        },
+        {
+          "name": "maxCount",
+          "type": "number",
+          "occurs": "?",
+          "default": 20,
+          "description": "Maximum commits to return (default 20)"
+        }
+      ]
+    },
+    {
+      "name": "lm_show",
+      "access": "read",
+      "description": "Show a commit with metadata, or a file from its tree",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "revision",
+          "type": "string",
+          "occurs": "?",
+          "default": "HEAD",
+          "description": "Revision (default HEAD)"
+        },
+        {
+          "name": "file",
+          "type": "string",
+          "occurs": "?",
+          "description": "Show this file from the revision instead of the commit metadata"
+        }
+      ]
+    },
+    {
+      "name": "lm_branch",
+      "access": "read",
+      "description": "Branches with upstream and ahead/behind",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "all",
+          "type": "boolean",
+          "occurs": "?",
+          "default": false,
+          "description": "Include remote branches"
+        }
+      ]
+    },
+    {
+      "name": "lm_remote",
+      "access": "read",
+      "description": "Remotes with credentials redacted from URLs",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        }
+      ]
+    },
+    {
+      "name": "lm_rev_parse",
+      "access": "read",
+      "description": "Resolve a revision and peel to commit",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "revision",
+          "type": "string",
+          "occurs": "?",
+          "default": "HEAD",
+          "description": "Revision (default HEAD)"
+        }
+      ]
+    },
+    {
+      "name": "lm_ls_files",
+      "access": "read",
+      "description": "List index entries with mode/stage",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "paths",
+          "type": "array",
+          "items": "string",
+          "occurs": "*",
+          "description": "Limit to paths"
+        }
+      ]
+    },
+    {
+      "name": "lm_blame",
+      "access": "read",
+      "description": "Per-line blame with author metadata",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "occurs": "?",
+          "default": ".",
+          "description": "Working directory (defaults to process.cwd())"
+        },
+        {
+          "name": "file",
+          "type": "string",
+          "description": "File to blame (required)"
+        },
+        {
+          "name": "revision",
+          "type": "string",
+          "occurs": "?",
+          "default": "HEAD",
+          "description": "Revision to attribute against"
+        }
+      ]
+    }
+  ],
+  "globals": [
+    {
+      "name": "dryrun",
+      "type": "boolean",
+      "occurs": "?",
+      "aliases": [
+        "dry-run"
+      ],
+      "description": "Simulate write operations"
+    },
+    {
+      "name": "readonly",
+      "type": "boolean",
+      "occurs": "?",
+      "aliases": [
+        "read-only"
+      ],
+      "description": "Refuse to run write operations"
+    },
+    {
+      "name": "confirm",
+      "type": "boolean",
+      "occurs": "?",
+      "aliases": [
+        "i-understand"
+      ],
+      "description": "Confirm dangerous operations"
+    },
+    {
+      "name": "json",
+      "type": "boolean",
+      "occurs": "?",
+      "description": "Output as JSON"
+    },
+    {
+      "name": "help",
+      "type": "boolean",
+      "occurs": "?",
+      "aliases": [
+        "h"
+      ],
+      "description": "Show help"
+    },
+    {
+      "name": "list",
+      "type": "boolean",
+      "occurs": "?",
+      "description": "List operations as JSON"
+    },
+    {
+      "name": "schema",
+      "type": "boolean",
+      "occurs": "?",
+      "description": "Print schema document"
+    },
+    {
+      "name": "explain",
+      "type": "string",
+      "occurs": "?",
+      "description": "Explain an operation"
+    },
+    {
+      "name": "format",
+      "type": "string",
+      "occurs": "?",
+      "description": "Format for explain (text or json)"
+    },
+    {
+      "name": "input-json",
+      "type": "string",
+      "occurs": "?",
+      "aliases": [
+        "inputJson"
+      ],
+      "description": "JSON document input"
+    },
+    {
+      "name": "input-graphql",
+      "type": "string",
+      "occurs": "?",
+      "aliases": [
+        "inputGraphql"
+      ],
+      "description": "GraphQL document input"
+    },
+    {
+      "name": "input-file",
+      "type": "string",
+      "occurs": "?",
+      "aliases": [
+        "inputFile"
+      ],
+      "description": "Path to file containing JSON document input"
+    }
+  ]
+}
