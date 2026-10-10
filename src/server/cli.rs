@@ -25,7 +25,8 @@ use crate::json_form::parse_json_document;
 use crate::publish::{publish_schema, PublishOptions};
 use crate::synopsis::to_kebab;
 use crate::types::{
-    Access, IssueCode, OperationSchema, ParamSpec, ParamType, ProductInfo, PublishedCliSchema, Record, ValidationIssue,
+    Access, InputForm, IssueCode, OperationSchema, ParamSpec, ParamType, ProductInfo, PublishedCliSchema, Record,
+    ValidationIssue,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -90,6 +91,93 @@ pub struct CliSpec<C> {
     pub product: Option<ProductInfo>,
     /// Replace the product check (default: [`check_product_version`] with the run's env).
     pub product_checker: Option<ProductChecker>,
+    /// Runner globals in use (default [`global_flags`]); published as `globals` and parsed.
+    pub globals: Vec<GlobalFlag>,
+    /// Input forms published as `inputs` (default all three); the others are refused
+    /// with `FORM_NOT_ALLOWED`.
+    pub inputs: Vec<InputForm>,
+}
+
+/// What a runner global does, independent of the flag name a tool publishes for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GlobalRole {
+    DryRun,
+    ReadOnly,
+    Confirm,
+    Json,
+    Help,
+    List,
+    Schema,
+    Explain,
+    Format,
+    InputJson,
+    InputGraphql,
+    InputFile,
+}
+
+impl GlobalRole {
+    /// Every role, in the order of [`global_flags`].
+    pub const ALL: [GlobalRole; 12] = [
+        GlobalRole::DryRun,
+        GlobalRole::ReadOnly,
+        GlobalRole::Confirm,
+        GlobalRole::Json,
+        GlobalRole::Help,
+        GlobalRole::List,
+        GlobalRole::Schema,
+        GlobalRole::Explain,
+        GlobalRole::Format,
+        GlobalRole::InputJson,
+        GlobalRole::InputGraphql,
+        GlobalRole::InputFile,
+    ];
+
+    /// The lmapi name of the flag (`dryrun`, `input-json`, ...).
+    pub fn default_name(self) -> &'static str {
+        match self {
+            GlobalRole::DryRun => "dryrun",
+            GlobalRole::ReadOnly => "readonly",
+            GlobalRole::Confirm => "confirm",
+            GlobalRole::Json => "json",
+            GlobalRole::Help => "help",
+            GlobalRole::List => "list",
+            GlobalRole::Schema => "schema",
+            GlobalRole::Explain => "explain",
+            GlobalRole::Format => "format",
+            GlobalRole::InputJson => "input-json",
+            GlobalRole::InputGraphql => "input-graphql",
+            GlobalRole::InputFile => "input-file",
+        }
+    }
+}
+
+/// A runner global: its role and the flag a tool publishes for it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlobalFlag {
+    pub role: GlobalRole,
+    pub spec: ParamSpec,
+}
+
+/// The default globals with their roles.
+pub fn default_globals() -> Vec<GlobalFlag> {
+    GlobalRole::ALL
+        .into_iter()
+        .zip(global_flags())
+        .map(|(role, spec)| GlobalFlag { role, spec })
+        .collect()
+}
+
+/// Every command-line spelling of a global: `--name`, `--kebab-name`, `--alias`, `-a`.
+fn flag_tokens(spec: &ParamSpec) -> Vec<String> {
+    let mut out = vec![format!("--{}", spec.name), format!("--{}", to_kebab(&spec.name))];
+    for a in spec.alias_list() {
+        out.push(if a.chars().count() == 1 {
+            format!("-{a}")
+        } else {
+            format!("--{a}")
+        });
+    }
+    out
 }
 
 impl<C> CliSpec<C> {
@@ -105,7 +193,67 @@ impl<C> CliSpec<C> {
             build_context: Box::new(build_context),
             product: None,
             product_checker: None,
+            globals: default_globals(),
+            inputs: vec![InputForm::Flags, InputForm::Json, InputForm::Graphql],
         }
+    }
+
+    /// Stop recognising and publishing a global, by its current name or lmapi name (e.g. a
+    /// native tool that owns `--format`). Policy env floors still apply when a policy flag is
+    /// dropped. Without `format`, `--explain <op>` prints JSON and `<tool> <op> --help` the text.
+    pub fn without_global(mut self, name: &str) -> Self {
+        self.globals
+            .retain(|g| g.spec.name != name && g.role.default_name() != name);
+        self
+    }
+
+    /// Publish and parse a global under another name (aliases are kept), e.g.
+    /// `.rename_global("format", "explain-format")`.
+    pub fn rename_global(mut self, name: &str, new_name: impl Into<String>) -> Self {
+        let new_name = new_name.into();
+        if let Some(g) = self
+            .globals
+            .iter_mut()
+            .find(|g| g.spec.name == name || g.role.default_name() == name)
+        {
+            g.spec.name = new_name;
+        }
+        self
+    }
+
+    /// Publish (and accept) only these input forms; an unpublished form is refused with
+    /// `FORM_NOT_ALLOWED` (exit 2). lmapi protocol section 3.
+    pub fn inputs<I: IntoIterator<Item = InputForm>>(mut self, forms: I) -> Self {
+        self.inputs = forms.into_iter().collect();
+        self
+    }
+
+    /// The global flags in use, as published.
+    pub fn global_specs(&self) -> Vec<ParamSpec> {
+        self.globals.iter().map(|g| g.spec.clone()).collect()
+    }
+
+    fn global_spec(&self, role: GlobalRole) -> Option<&ParamSpec> {
+        self.globals.iter().find(|g| g.role == role).map(|g| &g.spec)
+    }
+
+    /// `argv` contains a spelling of the role's flag (exact token, as lmts `argv.includes`).
+    fn has_role(&self, argv: &[String], role: GlobalRole) -> bool {
+        self.global_spec(role).is_some_and(|spec| {
+            let tokens = flag_tokens(spec);
+            argv.iter().any(|a| tokens.contains(a))
+        })
+    }
+
+    /// Position of the first token that spells the role's flag.
+    fn role_position(&self, argv: &[String], role: GlobalRole) -> Option<usize> {
+        let tokens = flag_tokens(self.global_spec(role)?);
+        argv.iter().position(|a| tokens.contains(a))
+    }
+
+    /// The parsed value of a role's global.
+    fn role_value<'v>(&self, values: &'v Record, role: GlobalRole) -> Option<&'v Value> {
+        self.global_spec(role).and_then(|spec| values.get(&spec.name))
     }
 
     pub fn version(mut self, version: impl Into<String>) -> Self {
@@ -161,6 +309,9 @@ impl<C> CliSpec<C> {
         let mut spec = CliSpec::new(doc.tool.clone(), build_context);
         spec.version = doc.version.clone();
         spec.product = doc.product.clone();
+        if let Some(inputs) = &doc.inputs {
+            spec.inputs = inputs.clone();
+        }
         for op in &doc.operations {
             let name = op.name.clone();
             spec.ops.push(OpDef {
@@ -287,7 +438,8 @@ pub fn schema_document<C>(spec: &CliSpec<C>) -> PublishedCliSchema {
         spec.ops.iter().map(schema_of).collect(),
         PublishOptions {
             version: Some(spec.version.clone().unwrap_or_else(|| "unknown".into())),
-            globals: Some(global_flags()),
+            globals: Some(spec.global_specs()),
+            inputs: Some(spec.inputs.clone()),
             product: spec.product.clone(),
             ..PublishOptions::default()
         },
@@ -334,6 +486,100 @@ pub fn run_cli_io<C>(spec: &CliSpec<C>, argv: &[String], out: &mut dyn Write, en
     Runner { spec, out, env }.run(argv)
 }
 
+/// Root globals that make an invocation lmapi-shaped on their own (no op token needed).
+/// `--help`/`-h`, `--json` and `--format` are deliberately absent: a native CLI keeps them.
+const ROOT_TRIGGERS: [GlobalRole; 9] = [
+    GlobalRole::Schema,
+    GlobalRole::List,
+    GlobalRole::Explain,
+    GlobalRole::InputJson,
+    GlobalRole::InputFile,
+    GlobalRole::InputGraphql,
+    GlobalRole::DryRun,
+    GlobalRole::ReadOnly,
+    GlobalRole::Confirm,
+];
+
+/// Dispatch guard for native CLIs (lmapi protocol section 6.1): whether `argv` (the
+/// arguments after the binary name) is lmapi-shaped, i.e. should go to [`run_cli`] while
+/// everything else stays with the tool's own parser.
+///
+/// The rule, using the spec's configured globals:
+/// 1. Skip leading runner globals (and their values), as the runner does; a `--` makes the
+///    next token the op token.
+/// 2. If an op token is found: lmapi-shaped iff it is a published operation name
+///    (`tool status --help` is lmapi-shaped and prints the op's help; `tool scan ...` with an
+///    unpublished `scan` is native).
+/// 3. Otherwise: lmapi-shaped iff a root trigger global is present (`--schema`, `--list`,
+///    `--explain <op>`, `--input-json`, `--input-file`, `--input-graphql`, `--dryrun`,
+///    `--readonly`, `--confirm`, in any of their spellings, also as `--flag=value`).
+///    `--help`/`-h` alone, `--json`, `--format` and empty argv are NOT lmapi-shaped, so a
+///    native CLI keeps its own help and no-argument behaviour.
+///
+/// ```
+/// use lmrust::server::{is_lmapi_invocation, CliSpec, OpDef};
+/// use lmrust::Access;
+/// use serde_json::json;
+///
+/// let spec = CliSpec::with_policy("probe").op(OpDef::new("status", Access::Read, "", |_, _| Ok(json!({}))));
+/// let shaped = |args: &[&str]| is_lmapi_invocation(&spec, &args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+/// assert!(shaped(&["--schema"]));
+/// assert!(shaped(&["status", "--help"]));
+/// assert!(shaped(&["--explain", "status"]));
+/// assert!(!shaped(&["--help"]));
+/// assert!(!shaped(&[]));
+/// assert!(!shaped(&["scan", "example.com"]));
+/// ```
+pub fn is_lmapi_invocation<C>(spec: &CliSpec<C>, argv: &[String]) -> bool {
+    if argv.is_empty() {
+        return false;
+    }
+    match find_op_token_index(argv, &spec.global_specs()) {
+        Some(i) => spec.ops.iter().any(|o| o.name == argv[i]),
+        None => ROOT_TRIGGERS.iter().any(|role| {
+            spec.global_spec(*role).is_some_and(|g| {
+                let tokens = flag_tokens(g);
+                argv.iter().any(|a| {
+                    tokens
+                        .iter()
+                        .any(|t| a == t || (a.starts_with(t.as_str()) && a[t.len()..].starts_with('=')))
+                })
+            })
+        }),
+    }
+}
+
+/// [`run_cli`] only for lmapi-shaped argv ([`is_lmapi_invocation`]); `None` leaves the
+/// invocation to the native CLI's own parser.
+///
+/// ```no_run
+/// # use lmrust::server::{maybe_run_cli, CliSpec};
+/// # let spec = CliSpec::with_policy("probe");
+/// let args: Vec<String> = std::env::args().skip(1).collect();
+/// if let Some(code) = maybe_run_cli(&spec, args.clone()) {
+///     std::process::exit(code);
+/// }
+/// // ... the tool's own (clap) parsing of `args` continues here.
+/// ```
+pub fn maybe_run_cli<C, I, S>(spec: &CliSpec<C>, args: I) -> Option<i32>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let argv: Vec<String> = args.into_iter().map(Into::into).collect();
+    is_lmapi_invocation(spec, &argv).then(|| run_cli(spec, argv))
+}
+
+/// [`maybe_run_cli`] with an explicit output stream and environment.
+pub fn maybe_run_cli_io<C>(
+    spec: &CliSpec<C>,
+    argv: &[String],
+    out: &mut dyn Write,
+    env: &HashMap<String, String>,
+) -> Option<i32> {
+    is_lmapi_invocation(spec, argv).then(|| run_cli_io(spec, argv, out, env))
+}
+
 struct Runner<'a, C> {
     spec: &'a CliSpec<C>,
     out: &'a mut dyn Write,
@@ -343,13 +589,6 @@ struct Runner<'a, C> {
 struct Docs {
     json: Option<String>,
     graphql: Option<String>,
-}
-
-fn global_str(globals: &Record, names: [&str; 2]) -> Option<String> {
-    names
-        .iter()
-        .find_map(|n| globals.get(*n))
-        .and_then(|v| v.as_str().map(String::from))
 }
 
 fn op_synopsis(schema: &OperationSchema) -> String {
@@ -367,10 +606,10 @@ fn op_synopsis(schema: &OperationSchema) -> String {
 
 /// Index of the first token that is not a global flag or a global flag's value; `None`
 /// when the invocation names no op. A `--` makes the next token the op.
-fn find_op_token_index(argv: &[String]) -> Option<usize> {
+fn find_op_token_index(argv: &[String], globals: &[ParamSpec]) -> Option<usize> {
     let mut booleans: Vec<String> = Vec::new();
     let mut strings: Vec<String> = Vec::new();
-    for g in global_flags() {
+    for g in globals {
         let bag = if g.kind == ParamType::Boolean {
             &mut booleans
         } else {
@@ -424,28 +663,28 @@ impl<C> Runner<'_, C> {
     }
 
     fn run(&mut self, argv: &[String]) -> i32 {
-        let has = |t: &str| argv.iter().any(|a| a == t);
+        let spec = self.spec;
         if argv.is_empty() {
             return self.print_help();
         }
-        let Some(op_idx) = find_op_token_index(argv) else {
-            if has("--help") || has("-h") {
+        let Some(op_idx) = find_op_token_index(argv, &spec.global_specs()) else {
+            if spec.has_role(argv, GlobalRole::Help) {
                 return self.print_help();
             }
-            if has("--list") {
+            if spec.has_role(argv, GlobalRole::List) {
                 return self.print_op_list();
             }
-            if has("--schema") {
+            if spec.has_role(argv, GlobalRole::Schema) {
                 let doc = schema_document(self.spec);
                 print_result(self.out, &doc);
                 return 0;
             }
-            if has("--explain") {
+            if spec.has_role(argv, GlobalRole::Explain) {
                 return self.explain(argv);
             }
             // A document passed without an op names the op itself (`{op, params}` / the GraphQL field).
             let dummy = OperationSchema::new("<unknown>").additional_params(true);
-            let globals = parse_argv_form(argv, &dummy, &global_flags())
+            let globals = parse_argv_form(argv, &dummy, &spec.global_specs())
                 .map(|v| v.globals)
                 .unwrap_or_default();
             let docs = match self.extract_docs(&globals) {
@@ -476,7 +715,7 @@ impl<C> Runner<'_, C> {
             .filter(|(i, _)| *i != op_idx)
             .map(|(_, a)| a.clone())
             .collect();
-        if rest.iter().any(|a| a == "--help" || a == "-h") {
+        if spec.has_role(&rest, GlobalRole::Help) {
             if let Some(op) = self.spec.ops.iter().find(|o| o.name == op_name) {
                 let text = render_op_help(&self.spec.tool_name, &schema_of(op));
                 return self.write_text(&text);
@@ -491,7 +730,7 @@ impl<C> Runner<'_, C> {
             &self.spec.tool_name,
             self.spec.description.as_deref(),
             &schemas,
-            &global_flags(),
+            &self.spec.global_specs(),
         );
         self.write_text(&text)
     }
@@ -517,11 +756,11 @@ impl<C> Runner<'_, C> {
     }
 
     fn explain(&mut self, argv: &[String]) -> i32 {
-        let idx = argv.iter().position(|a| a == "--explain").unwrap_or(0);
+        let idx = self.spec.role_position(argv, GlobalRole::Explain).unwrap_or(0);
         let op_name = argv.get(idx + 1);
-        let wants_text = argv
-            .iter()
-            .position(|a| a == "--format")
+        let wants_text = self
+            .spec
+            .role_position(argv, GlobalRole::Format)
             .and_then(|f| argv.get(f + 1))
             .is_some_and(|v| v == "text");
         let Some(op_name) = op_name.filter(|n| !n.starts_with("--")) else {
@@ -548,10 +787,16 @@ impl<C> Runner<'_, C> {
     }
 
     fn extract_docs(&self, globals: &Record) -> Result<Docs, CliError> {
-        let json_raw = global_str(globals, ["input-json", "inputJson"]);
-        let graphql = global_str(globals, ["input-graphql", "inputGraphql"]);
+        let text = |role| {
+            self.spec
+                .role_value(globals, role)
+                .and_then(Value::as_str)
+                .map(String::from)
+        };
+        let json_raw = text(GlobalRole::InputJson);
+        let graphql = text(GlobalRole::InputGraphql);
         let mut from_file = None;
-        if let Some(path) = global_str(globals, ["input-file", "inputFile"]) {
+        if let Some(path) = text(GlobalRole::InputFile) {
             match std::fs::read_to_string(&path) {
                 Ok(text) => from_file = Some(text),
                 Err(e) => {
@@ -600,7 +845,7 @@ impl<C> Runner<'_, C> {
             );
         };
         let schema = schema_of(op);
-        let globals = global_flags();
+        let globals = spec.global_specs();
         let parsed = parse_argv_form(argv, &schema, &globals);
         let (global_values, op_params, positionals) = match &parsed {
             Ok(v) => (v.globals.clone(), v.params.clone(), v.positionals.clone()),
@@ -610,6 +855,41 @@ impl<C> Runner<'_, C> {
             Ok(d) => d,
             Err(e) => return self.fail(e),
         };
+
+        // Only published input forms are accepted (lmapi protocol section 3).
+        let form = if docs.json.is_some() {
+            Some(InputForm::Json)
+        } else if docs.graphql.is_some() {
+            Some(InputForm::Graphql)
+        } else if !op_params.is_empty() || !positionals.is_empty() || parsed.is_err() {
+            Some(InputForm::Flags)
+        } else {
+            None // only globals: no input form is used
+        };
+        if let Some(form) = form.filter(|f| !spec.inputs.contains(f)) {
+            let published: Vec<&str> = spec.inputs.iter().map(|f| f.as_str()).collect();
+            let message = format!(
+                "input form \"{}\" is not published by {} (inputs: {})",
+                form.as_str(),
+                spec.tool_name,
+                if published.is_empty() {
+                    "none".to_string()
+                } else {
+                    published.join(", ")
+                }
+            );
+            let usage = format!("{} {} [flags]", spec.tool_name, op.name);
+            let mut issue = ValidationIssue::new(
+                IssueCode::FormNotAllowed,
+                format!("{message}. Expected: {usage}"),
+                usage.clone(),
+                usage,
+            );
+            issue.op = Some(op.name.clone());
+            issue.received = Some(Value::String(form.as_str().into()));
+            issue.allowed = Some(published.iter().map(|f| Value::String((*f).into())).collect());
+            return self.fail(validation_error(message, &op.name, &[issue]));
+        }
 
         if docs.json.is_some() || docs.graphql.is_some() {
             // Documents may accompany global flags, but not op flags or positionals.
@@ -645,12 +925,11 @@ impl<C> Runner<'_, C> {
             }
         }
 
+        let on = |role| spec.role_value(&global_values, role) == Some(&Value::Bool(true));
         let policy = Policy {
-            dry_run: global_values.get("dryrun") == Some(&Value::Bool(true))
-                || dry_run_from_env(&spec.tool_name, self.env),
-            read_only: global_values.get("readonly") == Some(&Value::Bool(true))
-                || read_only_from_env(&spec.tool_name, self.env),
-            confirmed: global_values.get("confirm") == Some(&Value::Bool(true)),
+            dry_run: on(GlobalRole::DryRun) || dry_run_from_env(&spec.tool_name, self.env),
+            read_only: on(GlobalRole::ReadOnly) || read_only_from_env(&spec.tool_name, self.env),
+            confirmed: on(GlobalRole::Confirm),
         };
 
         let resolved = resolve_input(ResolveArgs {

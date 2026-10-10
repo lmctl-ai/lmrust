@@ -9,8 +9,9 @@ pub mod policy;
 pub mod product;
 
 pub use cli::{
-    dry_run_from_env, global_flags, read_only_from_env, run_cli, run_cli_io, schema_document, synthesize_schema,
-    CliSpec, ContextBuilder, Handler, OpDef, ProductChecker,
+    default_globals, dry_run_from_env, global_flags, is_lmapi_invocation, maybe_run_cli, maybe_run_cli_io,
+    read_only_from_env, run_cli, run_cli_io, schema_document, synthesize_schema, CliSpec, ContextBuilder, GlobalFlag,
+    GlobalRole, Handler, OpDef, ProductChecker,
 };
 pub use errors::{CliError, ErrorCode};
 pub use exec::{spawn_command, ExecError, ExecOptions, ExecResult};

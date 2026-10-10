@@ -124,6 +124,19 @@ impl CliError {
         self
     }
 
+    /// Keep a tool-specific error code under `error.data.tool_code` (lmapi protocol 6.1);
+    /// `error.code` and the exit code stay those of the standard code.
+    ///
+    /// ```
+    /// use lmrust::server::{CliError, ErrorCode};
+    /// let e = CliError::new(ErrorCode::NotFound, "no such host").tool_code("E_NXDOMAIN");
+    /// assert_eq!(e.exit_code(), 4);
+    /// assert_eq!(e.data.unwrap()["tool_code"], "E_NXDOMAIN");
+    /// ```
+    pub fn tool_code(self, code: impl Into<Value>) -> Self {
+        self.with("tool_code", code.into())
+    }
+
     pub fn exit_code(&self) -> i32 {
         self.code.exit_code()
     }
