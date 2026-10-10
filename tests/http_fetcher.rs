@@ -91,7 +91,8 @@ fn small_helpers() {
             "ATOMIC_WRITE_FAILED"
         ]
     );
-    assert!(ModuleErrorCode::BadJson == "BAD_JSON" && "BAD_JSON" == ModuleErrorCode::BadJson);
+    assert!(ModuleErrorCode::BadJson == "BAD_JSON");
+    assert!("BAD_JSON" == ModuleErrorCode::BadJson);
     let e = ModuleError::new(ModuleErrorCode::FetchFailed, "boom");
     assert_eq!(e.to_string(), "FETCH_FAILED: boom");
     assert_eq!(FetchError::Timeout("t".into()).to_string(), "t");
