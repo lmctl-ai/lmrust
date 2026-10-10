@@ -168,12 +168,37 @@ git clone https://github.com/lmctl-ai/lmapi ../lmapi
 cargo test --all-features --test conformance -- --nocapture
 ```
 
+## Property and Differential Tests
+
+- **Property tests** (`tests/property.rs`, in-tree pure Rust, no Node required):
+  1. `encode -> parse` round-trip for every fixture op under random values (JSON, GraphQL, argv).
+  2. `validate` idempotence (validating already-validated output yields identical output).
+  3. Tokenizer fuzzing ($10^5$ random strings without panic).
+  4. `parse_published_schema(publish(schema))` round-trip across synthetic schemas.
+  5. Server `run_cli_io` argv fuzzing ($10^4$ inputs, valid exit code, no panic).
+
+- **Differential tests** (`tests/differential.rs`, compares lmrust with reference `@lmctl-ai/lmts` via `tests/support/lmts-oracle.mjs`):
+  - Over 2,500 deterministic pseudo-random cases across `validate`, `parse_argv_form`, `json_form`, `graphql_form`, `encode` round-trips, and `interpret_command`.
+  - Compares canonical JSON of results and `(code, param)` of issues.
+  - Skips locally with a clear message when `LMTS_DIR` / `node` is absent; fails in CI when `GITHUB_ACTIONS` is set.
+  - CI checks out `lmts` pinned to `LMTS_REF` and runs the suite in under 15 seconds.
+  - Known divergences are minimized and preserved as `#[ignore = "divergence: ..."]` regression tests.
+
+```sh
+# Run property tests (no external dependencies)
+cargo test --test property
+
+# Run differential tests against reference lmts checkout
+LMTS_DIR=../lmts cargo test --test differential -- --nocapture
+```
+
 ## Development
 
 ```sh
 cargo fmt --all --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
+LMTS_DIR=../lmts cargo test --all-features   # includes differential suite
 cargo llvm-cov --all-features --summary-only   # line coverage
 cargo +1.79 test --locked --all-features      # MSRV
 ```

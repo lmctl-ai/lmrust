@@ -20,6 +20,8 @@ env:
   # lmapi commit whose conformance vectors this lmrust revision is checked against.
   # Bump deliberately when lmapi adds vectors.
   LMAPI_REF: 26bfb301872b3c2843affbba5ee4cb7fc4a3d6f6
+  # lmts commit whose reference implementation this lmrust revision is checked against.
+  LMTS_REF: 2ebe12b9a9d358c62de3377537f48b45c2e6ca49
 
 jobs:
   lint:
@@ -107,3 +109,35 @@ jobs:
       # Run directly (no pipe) so cargo's exit code is the step's result.
       - name: Run every vector (validate, argv, interpret, publish, prompt, spec, fixtures)
         run: cargo test --locked --all-features --test conformance -- --nocapture
+
+  differential:
+    name: Differential tests against lmts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lmrust
+    steps:
+      - name: Checkout lmrust
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: lmrust
+
+      - name: Checkout lmts reference SDK
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: lmctl-ai/lmts
+          ref: ${{ env.LMTS_REF }}
+          path: lmts
+
+      - name: Install Node 20
+        uses: actions/setup-node@1e60f639196014664a7e1a777645739f8e36e00d # v4.0.3
+        with:
+          node-version: 20
+
+      - name: Install stable toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Run differential suite (>= 2000 cases)
+        run: cargo test --locked --all-features --test differential -- --nocapture
+        env:
+          LMTS_DIR: ${{ github.workspace }}/lmts

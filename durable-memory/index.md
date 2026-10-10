@@ -3,6 +3,7 @@
 Portable knowledge for the Rust SDK of lmapi. Read this page, then the page for the
 module you are touching:
 
+- [tests.md](tests.md): conformance vectors, property tests, and differential testing against lmts.
 - [conformance.md](conformance.md): how the lmapi vectors run, what is compared, and the
   per-directory counts.
 - [js-semantics.md](js-semantics.md): why `src/js.rs` exists (numbers, JSON text,
@@ -63,13 +64,14 @@ Modules mirror lmts files one to one:
 ```sh
 cargo fmt --all --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo test                      # default features
+cargo test                      # default features (incl. property tests)
 cargo test --all-features       # + module store and the spec/ vectors
+LMTS_DIR=../lmts cargo test --all-features   # + differential suite against lmts
 cargo +1.79 test --all-features --locked   # MSRV
 cargo llvm-cov --all-features --summary-only
 ```
 
-Conformance needs lmapi beside the repo (`../lmapi`) or `LMAPI_DIR`; see conformance.md.
+Conformance needs lmapi beside the repo (`../lmapi`) or `LMAPI_DIR`; differential tests need lmts (`../lmts`) or `LMTS_DIR`. See [tests.md](tests.md).
 
 ## Known limitations
 
