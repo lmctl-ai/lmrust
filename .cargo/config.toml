@@ -1,3 +1,0 @@
-# Resolve dependency versions that support the declared rust-version (1.79) when possible.
-[resolver]
-incompatible-rust-versions = "fallback"

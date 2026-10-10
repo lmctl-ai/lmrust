@@ -38,6 +38,8 @@ pub mod inputs;
 pub mod interpret;
 pub mod js;
 pub mod json_form;
+#[cfg(feature = "modules")]
+pub mod modules;
 pub mod publish;
 pub mod server;
 pub mod synopsis;

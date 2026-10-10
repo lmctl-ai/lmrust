@@ -6,7 +6,8 @@
 //! without running the vectors. Issues are compared by `code` and by `param` / `op` /
 //! `suggestion` identity when the vector names them, never by message text.
 //!
-//! Run `cargo test --test conformance -- --nocapture` to see per-file counts.
+//! Run `cargo test --all-features --test conformance -- --nocapture` to see per-file counts
+//! (the `spec/` vectors need the `modules` feature).
 
 use lmrust::js::deep_eq;
 use lmrust::{
@@ -303,4 +304,35 @@ fn fixture_documents_are_valid() {
     }
     assert!(tally.passed > 0, "no fixtures found");
     report(vec![tally]);
+}
+
+#[cfg(feature = "modules")]
+#[test]
+fn spec_vectors() {
+    report(run_dir("spec", |_, tc| {
+        let spec = tc["spec"].as_str().unwrap_or_default();
+        let exp = &tc["expect"];
+        match (exp["ok"].as_bool(), lmrust::modules::parse_spec(spec)) {
+            (Some(true), Ok(s)) => {
+                expect_eq("owner", &exp["owner"], &Value::String(s.owner.clone()))?;
+                expect_eq("repo", &exp["repo"], &Value::String(s.repo.clone()))?;
+                expect_eq("channel", &exp["channel"], &Value::String(s.channel.as_str().into()))?;
+                expect_eq("key", &exp["key"], &Value::String(s.key.clone()))
+            }
+            (Some(true), Err(e)) => Err(format!("unexpected error {e}")),
+            (_, Ok(s)) => Err(format!("expected failure, got {}", s.key)),
+            (_, Err(e)) => match exp.get("code").and_then(Value::as_str) {
+                Some(code) if code != e.code => Err(format!("expected code {code}, got {}", e.code)),
+                _ => Ok(()),
+            },
+        }
+    }));
+}
+
+#[cfg(not(feature = "modules"))]
+#[test]
+fn spec_vectors_need_the_modules_feature() {
+    if conformance_dir().is_some() {
+        println!("conformance spec/: skipped (build with --features modules to run the module spec vectors)");
+    }
 }
