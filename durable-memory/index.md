@@ -84,7 +84,7 @@ Conformance needs lmapi beside the repo (`../lmapi`) or `LMAPI_DIR`; see conform
   `parse_published_schema` reports such a document as one `TYPE_MISMATCH` issue instead of
   returning an untyped object.
 - **Signals**: a child killed by a signal reports exit code `128 + signal`; lmts' Node
-  adapter reports 0 there.
+  adapter reported 0 there (fixed in lmts branch `fix-parity-findings`, not yet released).
 - **Unreachable lmts branch kept**: `run_op`'s "invalid arguments" issue for a document plus
   an unparsable argv cannot trigger (a failed parse also drops the document globals), in lmts
   and here alike; ported for parity.

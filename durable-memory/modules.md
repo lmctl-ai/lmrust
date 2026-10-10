@@ -42,5 +42,8 @@ tool, version, bytes`, written as `JSON.stringify(meta, null, 2) + "\n"`.
 - `ModuleError.details` is boxed (`Option<Box<Record>>`) to keep `Result`s small.
 - `upgrade(Some(specs))` keeps the lmts quirk: one unparsable spec returns a single failure
   for the whole call.
+- Hand-built specs with `.`/`..` segments are `PATH_TRAVERSAL` in lmrust everywhere; lmts let
+  `remove(allChannels)` delete the whole `github.com` tree (fixed in lmts branch
+  `fix-parity-findings`, not yet released).
 - Known limitation shared with lmts: an entry update is two renames (schema, then meta), not one
   atomic unit; a crash between them leaves a hash mismatch, reported as `CACHE_CORRUPT`.
