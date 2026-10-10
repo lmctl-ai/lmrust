@@ -19,7 +19,7 @@ env:
   RUSTFLAGS: -D warnings
   # lmapi commit whose conformance vectors this lmrust revision is checked against.
   # Bump deliberately when lmapi adds vectors.
-  LMAPI_REF: 62e3a2595ec1168dc0bbb80679f9cd8724b407c8
+  LMAPI_REF: 26bfb301872b3c2843affbba5ee4cb7fc4a3d6f6
 
 jobs:
   lint:
