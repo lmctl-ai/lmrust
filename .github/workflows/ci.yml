@@ -130,7 +130,7 @@ jobs:
           path: lmts
 
       - name: Install Node 20
-        uses: actions/setup-node@1e60f639196014664a7e1a777645739f8e36e00d # v4.0.3
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
         with:
           node-version: 20
 
