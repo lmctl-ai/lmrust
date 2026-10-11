@@ -141,3 +141,4 @@ jobs:
         run: cargo test --locked --all-features --test differential -- --nocapture
         env:
           LMTS_DIR: ${{ github.workspace }}/lmts
+          LMRUST_REQUIRE_DIFFERENTIAL: "1"

@@ -195,7 +195,7 @@ fn setup_oracle_or_skip() -> Option<Oracle> {
     let node_ok = node_is_available();
 
     if lmts_dir.is_none() || !node_ok {
-        if std::env::var_os("GITHUB_ACTIONS").is_some() {
+        if std::env::var_os("LMRUST_REQUIRE_DIFFERENTIAL").is_some() {
             panic!(
                 "Differential tests FAIL in CI: LMTS_DIR={:?}, node_available={}",
                 lmts_dir, node_ok
@@ -211,7 +211,7 @@ fn setup_oracle_or_skip() -> Option<Oracle> {
     match Oracle::spawn(&lmts_dir.unwrap()) {
         Ok(oracle) => Some(oracle),
         Err(e) => {
-            if std::env::var_os("GITHUB_ACTIONS").is_some() {
+            if std::env::var_os("LMRUST_REQUIRE_DIFFERENTIAL").is_some() {
                 panic!("Differential tests FAIL in CI: {e}");
             }
             eprintln!("SKIPPED: differential tests skipped due to oracle initialization failure: {e}");
