@@ -11,8 +11,9 @@
 
 use lmrust::js::deep_eq;
 use lmrust::{
-    describe_for_prompt, interpret_command, parse_argv_form, parse_published_schema, validate, InputForm,
-    OperationSchema, ParamSpec, PublishedCliSchema, ValidationIssue, ValidationOptions,
+    describe_for_prompt, encode_argv, interpret_command, parse_argv_form, parse_published_schema, resolve_input,
+    validate, EncodeArgvOptions, InputForm, OperationSchema, ParamSpec, PublishedCliSchema, ResolveArgs,
+    ValidationIssue, ValidationOptions,
 };
 use serde_json::Value;
 use std::fs;
@@ -206,6 +207,38 @@ fn argv_vectors() {
             (_, Ok(v)) => Err(format!("expected failure, got {:?}", v)),
             (_, Err(issues)) => check_issues(&exp["issues"], &issues, &["param", "suggestion"]),
         }
+    }));
+}
+
+/// Split an encoded argv at the first `--`: named flags (a multiset) and positionals (ordered).
+fn split_at_separator(argv: &[String]) -> (Vec<String>, Vec<String>) {
+    match argv.iter().position(|a| a == "--") {
+        Some(i) => (argv[..i].to_vec(), argv[i + 1..].to_vec()),
+        None => (argv.to_vec(), Vec::new()),
+    }
+}
+
+#[test]
+fn encode_vectors() {
+    report(run_dir("encode", |_, tc| {
+        let schema: OperationSchema = serde_json::from_value(tc["schema"].clone()).map_err(|e| e.to_string())?;
+        let params = tc["params"].as_object().cloned().unwrap_or_default();
+        let positional = tc["options"]["positional"].as_bool().unwrap_or(false);
+        let argv = encode_argv(&schema, &params, EncodeArgvOptions { positional });
+        let want: Vec<String> = serde_json::from_value(tc["expect"]["argv"].clone()).map_err(|e| e.to_string())?;
+        let (mut got_named, got_pos) = split_at_separator(&argv);
+        let (mut want_named, want_pos) = split_at_separator(&want);
+        got_named.sort();
+        want_named.sort();
+        if got_named != want_named
+            || got_pos != want_pos
+            || argv.contains(&"--".to_string()) != want.contains(&"--".to_string())
+        {
+            return Err(format!("argv: expected {want:?}, got {argv:?}"));
+        }
+        // Round trip: the flags form resolves back to the params.
+        let back = resolve_input(ResolveArgs::new(&schema, &argv)).map_err(|e| format!("round trip: {e:?}"))?;
+        expect_eq("round trip", &Value::Object(params), &Value::Object(back.params))
     }));
 }
 

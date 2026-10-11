@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2
+
+### Fixed
+- `encode_argv` with `positional: true` emits positional params after `--` in schema order (the
+  order the runner assigns positionals in) instead of the params map's key order. Under sorted keys
+  (`default-features = false`) or any map whose keys were not in schema order, positional values
+  were swapped silently (`{"symbol", "path"}` became `-- <path> <symbol>`). lmapi conformance
+  `encode/` vectors; lmts has the same fix.
+
 ## 0.1.1
 
 ### Changed

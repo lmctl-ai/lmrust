@@ -35,7 +35,7 @@ Modules mirror lmts files one to one:
 
 - **Values are `serde_json::Value`; records are `lmrust::Record`** (a `serde_json::Map`;
   with the default feature `preserve_order` it keeps insertion order like a JS object). lmts relies on it
-  in `encode_argv` (flag order), `encode_json`, published documents and error envelopes.
+  in `encode_argv` (named-flag order; positionals always follow schema order), `encode_json`, published documents and error envelopes.
 - **Results**: every parser/validator returns `Outcome<T> = Result<T, Vec<ValidationIssue>>`
   (lmts `Result<T>`); the throwing lmts wrappers (`validateParams`, `parseJsonInput`, ...)
   return `Result<T, SchemaValidationError>` with the same `details` record.

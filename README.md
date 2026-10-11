@@ -123,7 +123,7 @@ to insertion order. A tool whose existing output relies on sorted keys (golden f
 envelopes) depends on lmrust with `default-features = false`:
 
 ```toml
-lmrust = { git = "https://github.com/lmctl-ai/lmrust", tag = "v0.1.1", default-features = false }
+lmrust = { git = "https://github.com/lmctl-ai/lmrust", tag = "v0.1.2", default-features = false }
 ```
 
 Everything works the same without it; only the key order of JSON objects lmrust builds (e.g. the
@@ -158,7 +158,7 @@ Known gaps and deliberate differences are listed in
 
 ## Conformance
 
-`tests/conformance.rs` runs every vector in lmapi's `conformance/` directory (validate, argv,
+`tests/conformance.rs` runs every vector in lmapi's `conformance/` directory (validate, argv, encode,
 interpret, publish, prompt, spec, fixtures), comparing issue codes and param/op identity, never
 message text. It looks for `$LMAPI_DIR/conformance`, default `../lmapi`, and fails in CI
 (`GITHUB_ACTIONS`) when the directory is missing.

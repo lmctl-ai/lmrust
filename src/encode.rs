@@ -58,6 +58,8 @@ fn argv_value(kind: ParamType, value: &Value) -> String {
 
 /// Encode params as an argv array (op name not included). Values use `--k=v` so they may
 /// start with `-` or contain anything; booleans use `--k` / `--no-k`; multi params repeat.
+/// With `positional`, positional params follow a `--` in schema order (the order the runner
+/// assigns positionals in), whatever the key order of `params`.
 ///
 /// ```
 /// use lmrust::{encode_argv, parse_argv_form, EncodeArgvOptions, OperationSchema, ParamSpec, ParamType, Occurs};
@@ -76,10 +78,16 @@ fn argv_value(kind: ParamType, value: &Value) -> String {
 /// ```
 pub fn encode_argv(schema: &OperationSchema, params: &Record, opts: EncodeArgvOptions) -> Vec<String> {
     let mut out = Vec::new();
-    let mut trailing = Vec::new();
-    let specs: HashMap<&str, &ParamSpec> = schema.params.iter().map(|p| (p.name.as_str(), p)).collect();
+    // (schema index, values) of each positional param, emitted in schema order at the end.
+    let mut trailing: Vec<(usize, Vec<String>)> = Vec::new();
+    let specs: HashMap<&str, (usize, &ParamSpec)> = schema
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.name.as_str(), (i, p)))
+        .collect();
     for (name, value) in params {
-        let declared = specs.get(name.as_str()).copied();
+        let declared = specs.get(name.as_str()).map(|(_, s)| *s);
         let fallback;
         let spec = match declared {
             Some(s) => s,
@@ -92,10 +100,12 @@ pub fn encode_argv(schema: &OperationSchema, params: &Record, opts: EncodeArgvOp
         let kind = element_type(spec);
 
         if opts.positional && spec.is_positional() {
-            match value {
-                Value::Array(items) if is_multi(spec) => trailing.extend(items.iter().map(|v| argv_value(kind, v))),
-                other => trailing.push(argv_value(kind, other)),
-            }
+            let values = match value {
+                Value::Array(items) if is_multi(spec) => items.iter().map(|v| argv_value(kind, v)).collect(),
+                other => vec![argv_value(kind, other)],
+            };
+            let index = specs.get(name.as_str()).map_or(usize::MAX, |(i, _)| *i);
+            trailing.push((index, values));
             continue;
         }
         if let (true, Value::Array(items)) = (is_multi(spec), value) {
@@ -112,8 +122,9 @@ pub fn encode_argv(schema: &OperationSchema, params: &Record, opts: EncodeArgvOp
         out.push(format!("{flag}={}", argv_value(kind, value)));
     }
     if !trailing.is_empty() {
+        trailing.sort_by_key(|(index, _)| *index);
         out.push("--".into());
-        out.extend(trailing);
+        out.extend(trailing.into_iter().flat_map(|(_, values)| values));
     }
     out
 }

@@ -197,3 +197,72 @@ fn uses_mutation_for_write_ops_query_otherwise() {
 fn rejects_values_the_subset_cannot_express() {
     assert!(encode_graphql(&schema(), &rec(json!({"config": {"bad-key": 1}}))).is_err());
 }
+
+// Positionals are emitted in schema order, whatever the order of the params map (insertion
+// order with `preserve_order`, sorted keys without it).
+fn positional_schema(names: &[&str]) -> OperationSchema {
+    let params: Vec<Value> = names
+        .iter()
+        .map(|n| json!({"name": n, "type": "string", "positional": true}))
+        .collect();
+    serde_json::from_value(json!({"name": "op", "params": params})).unwrap()
+}
+
+/// A record with keys inserted in exactly this order.
+fn ordered(pairs: &[(&str, Value)]) -> Record {
+    let mut r = Record::new();
+    for (k, v) in pairs {
+        r.insert(k.to_string(), v.clone());
+    }
+    r
+}
+
+#[test]
+fn positionals_follow_schema_order_for_reverse_key_maps() {
+    // Schema order symbol, path; keys inserted path, symbol (also their sorted order).
+    let s = positional_schema(&["symbol", "path"]);
+    let params = ordered(&[("path", json!("src")), ("symbol", json!("Parser"))]);
+    let argv = encode_argv(&s, &params, EncodeArgvOptions { positional: true });
+    assert_eq!(argv, ["--", "Parser", "src"]);
+    let back = parse_argv_form(&argv, &s, &[]).unwrap_or_else(|i| panic!("{i:?}"));
+    assert_eq!(back.positionals, ["Parser", "src"]);
+}
+
+#[test]
+fn positionals_follow_schema_order_for_sorted_and_insertion_ordered_maps() {
+    // Schema order alpha, beta: sorted keys agree with it, a reversed insertion does not.
+    let s = positional_schema(&["alpha", "beta"]);
+    for params in [
+        ordered(&[("beta", json!("2")), ("alpha", json!("1"))]),
+        ordered(&[("alpha", json!("1")), ("beta", json!("2"))]),
+    ] {
+        assert_eq!(
+            encode_argv(&s, &params, EncodeArgvOptions { positional: true }),
+            ["--", "1", "2"]
+        );
+    }
+    // Neither sorted nor schema order: to, mode, from with schema mode, from, to.
+    let s = positional_schema(&["mode", "from", "to"]);
+    let params = ordered(&[("to", json!("c")), ("mode", json!("a")), ("from", json!("b"))]);
+    assert_eq!(
+        encode_argv(&s, &params, EncodeArgvOptions { positional: true }),
+        ["--", "a", "b", "c"]
+    );
+}
+
+#[test]
+fn a_variadic_positional_expands_after_the_single_ones_and_named_flags_stay_first() {
+    let s: OperationSchema = serde_json::from_value(json!({"name": "grep", "params": [
+        {"name": "pattern", "type": "string", "positional": true},
+        {"name": "limit", "type": "number", "occurs": "?"},
+        {"name": "paths", "type": "array", "items": "string", "occurs": "*", "positional": true},
+    ]}))
+    .unwrap();
+    let params = ordered(&[
+        ("paths", json!(["src", "tests"])),
+        ("limit", json!(5)),
+        ("pattern", json!("-x")),
+    ]);
+    let argv = encode_argv(&s, &params, EncodeArgvOptions { positional: true });
+    assert_eq!(argv, ["--limit=5", "--", "-x", "src", "tests"]);
+}
