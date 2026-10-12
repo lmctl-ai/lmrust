@@ -72,6 +72,15 @@ successful run the file is the result (a missing file is `COMMAND_FAILED` / `NO_
 `BAD_RESULT_FILE`). Files the command derives from the output path (sidecars) land in the same dir. Access is
 still the overlay's: an op is only `read` when nothing it writes can land outside that dir.
 
+`[input_document]` (`param`, `file_name` default `input.json`), added for physim (each command reads one
+JSON document `--input scenario.json`): the input-file arg is not published; the op's document fields, supplied
+from Rust with `Bridge::document_params(op, Vec<ParamSpec>)` (physim generates them from its serde `Input`
+structs), are published as params and every call writes the given ones as a JSON object to `<temp>/<file_name>`
+whose path fills the arg. An op without supplied fields is open (`additionalParams: true`): every key that is not
+a CLI arg, inline form or result file goes into the document. A field that clashes with a CLI param is a plan
+error. `result_file.format = "auto"` parses JSON, else CSV (a `--format csv|json` command). Result files larger
+than `max_stdout_bytes` are `OUTPUT_TOO_LARGE`.
+
 ## Rules and decisions
 
 - **argv order**: `legacy_root_args`, then each command word followed by its level's flags (clap

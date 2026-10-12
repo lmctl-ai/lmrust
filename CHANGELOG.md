@@ -19,6 +19,9 @@
 - Overlay `[op.result_file]` (the command's output-path arg is filled with a private temp path and the file it
   writes, CSV/JSON/text, becomes the result; the temp dir is removed) and inline forms `via = "file"` with
   `file_name`, `ops` and `kind = "toml"` (a config map written to a temp file). Added for lmsim.
+- Overlay `[input_document]` with `Bridge::document_params` (params composed into the JSON document a command
+  reads from its input-file arg; open documents without fields), `result_file.format = "auto"` and a size cap on
+  result files (`max_stdout_bytes`). Added for physim.
 - Dependencies of the feature: clap 4.5 (`std` only; 4.5.x keeps the 1.79 MSRV, clap 4.6 needs
   1.85) and toml 0.8 (`parse`, `display`). Default features and their dependencies are unchanged.
 

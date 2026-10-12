@@ -11,6 +11,7 @@ use crate::types::{Access, ItemType, Occurs, OperationSchema, ParamSpec, ParamTy
 use clap::{Arg, ArgAction, Command};
 use serde_json::Value;
 use std::any::TypeId;
+use std::collections::BTreeMap;
 
 /// Where one published param goes on the legacy command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,6 +98,19 @@ pub struct OpPlan {
     pub inline: Vec<InlinePlan>,
     /// The op's data comes back through a file (overlay `result_file`).
     pub result_file: Option<ResultFile>,
+    /// The op's input-file arg is filled with a document composed from params.
+    pub document: Option<DocumentPlan>,
+}
+
+/// An op whose input-file arg receives a JSON document composed from params (overlay
+/// `input_document`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DocumentPlan {
+    /// Published name of the input-file arg.
+    pub target: String,
+    pub file_name: String,
+    /// The document's fields (published params); `None`: every param that is not a CLI arg.
+    pub fields: Option<Vec<String>>,
 }
 
 impl OpPlan {
@@ -323,17 +337,37 @@ fn param_for(arg: &Arg, level: usize) -> Option<(ParamSpec, Binding)> {
 
 /// Plans for every overlay op, in overlay order (the published order).
 pub fn plans(root: &Command, overlay: &Overlay, tool: &str) -> Result<Vec<OpPlan>, String> {
+    plans_with_documents(root, overlay, tool, &BTreeMap::new())
+}
+
+/// [`plans`] with the document fields of `input_document` ops, by op name.
+pub fn plans_with_documents(
+    root: &Command,
+    overlay: &Overlay,
+    tool: &str,
+    documents: &BTreeMap<String, Vec<ParamSpec>>,
+) -> Result<Vec<OpPlan>, String> {
     let mut root = root.clone();
     root.build();
     let problems = overlay.problems();
     if !problems.is_empty() {
         return Err(problems.join("; "));
     }
-    overlay.ops.iter().map(|op| plan(&root, overlay, op, tool)).collect()
+    overlay
+        .ops
+        .iter()
+        .map(|op| plan(&root, overlay, op, tool, documents.get(&op.name)))
+        .collect()
 }
 
 /// The plan of one op; `root` must be built (`Command::build`).
-pub(crate) fn plan(root: &Command, overlay: &Overlay, op: &OverlayOp, tool: &str) -> Result<OpPlan, String> {
+pub(crate) fn plan(
+    root: &Command,
+    overlay: &Overlay,
+    op: &OverlayOp,
+    tool: &str,
+    document_fields: Option<&Vec<ParamSpec>>,
+) -> Result<OpPlan, String> {
     let first = op.command.split_whitespace().next().unwrap_or_default();
     if overlay.excluded.iter().any(|e| e == &op.command || e == first) {
         return Err(format!("op {}: command `{}` is excluded", op.name, op.command));
@@ -492,11 +526,48 @@ pub(crate) fn plan(root: &Command, overlay: &Overlay, op: &OverlayOp, tool: &str
         .or_else(|| leaf.get_about().map(|a| a.to_string()))
         .unwrap_or_else(|| format!("{tool} {}", op.command));
     let access = access_of(op.access);
+    let mut document = None;
+    if let Some(doc) = &overlay.input_document {
+        if let Some(at) = params.iter().position(|p| p.name == doc.param) {
+            let b = &bindings[at];
+            if b.multi || b.kind != ValueKind::Value || b.slot == Slot::StdinOnly {
+                return Err(format!(
+                    "op {}: input_document param {} must take a single value",
+                    op.name, doc.param
+                ));
+            }
+            params.remove(at); // supplied by the bridge
+            let fields = match document_fields {
+                Some(fields) => {
+                    for f in fields {
+                        if params.iter().any(|p| p.name == f.name) {
+                            return Err(format!(
+                                "op {}: document field {} clashes with a param of the op",
+                                op.name, f.name
+                            ));
+                        }
+                        params.push(f.clone());
+                    }
+                    Some(fields.iter().map(|f| f.name.clone()).collect())
+                }
+                None => None,
+            };
+            document = Some(DocumentPlan {
+                target: doc.param.clone(),
+                file_name: doc.file_name.clone(),
+                fields,
+            });
+        }
+    }
+    let open = matches!(&document, Some(DocumentPlan { fields: None, .. }));
     let mut schema = OperationSchema::new(op.name.clone())
         .access(access)
         .describe(description);
     schema.returns = Some(ReturnType::Object);
     schema.params = params;
+    if open {
+        schema.additional_params = Some(true);
+    }
     Ok(OpPlan {
         name: op.name.clone(),
         words,
@@ -508,6 +579,7 @@ pub(crate) fn plan(root: &Command, overlay: &Overlay, op: &OverlayOp, tool: &str
         legacy_json: op.legacy_json,
         inline,
         result_file: op.result_file.clone(),
+        document,
     })
 }
 

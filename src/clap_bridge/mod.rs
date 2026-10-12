@@ -40,20 +40,22 @@ mod generate;
 mod overlay;
 
 pub use coverage::{assert_coverage, coverage_problems};
-pub use generate::{camel, plans, Binding, InlineFormPlan, InlinePlan, OpPlan, Slot, ValueKind};
+pub use generate::{
+    camel, plans, plans_with_documents, Binding, DocumentPlan, InlineFormPlan, InlinePlan, OpPlan, Slot, ValueKind,
+};
 pub use overlay::{
-    InlineForm, InlineInput, InlineKind, InlineVia, Overlay, OverlayAccess, OverlayOp, OverlayParam, ResultFile,
-    ResultFormat,
+    InlineForm, InlineInput, InlineKind, InlineVia, InputDocument, Overlay, OverlayAccess, OverlayOp, OverlayParam,
+    ResultFile, ResultFormat,
 };
 
 use crate::server::{
     check_policy, is_lmapi_invocation, print_error, run_cli_io, CheckContext, CliError, CliSpec, ErrorCode, OpDef,
     Policy,
 };
-use crate::types::{Access, PublishedCliSchema, Record};
+use crate::types::{Access, ParamSpec, PublishedCliSchema, Record};
 use clap::Command;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -75,6 +77,7 @@ pub struct Bridge {
     version: Option<String>,
     exe: Option<PathBuf>,
     dynamic: HashMap<String, DynamicAccess>,
+    documents: BTreeMap<String, Vec<ParamSpec>>,
 }
 
 impl std::fmt::Debug for Bridge {
@@ -101,6 +104,7 @@ impl Bridge {
             version: None,
             exe: None,
             dynamic: HashMap::new(),
+            documents: BTreeMap::new(),
         })
     }
 
@@ -126,6 +130,14 @@ impl Bridge {
         self
     }
 
+    /// The fields of `op`'s input document (overlay `input_document`), published as its params and
+    /// composed into the JSON document the command reads. Without them the op accepts any key
+    /// (`additionalParams`). Typically generated from the tool's input structs.
+    pub fn document_params(mut self, op: &str, params: Vec<ParamSpec>) -> Self {
+        self.documents.insert(op.to_string(), params);
+        self
+    }
+
     /// The checked overlay.
     pub fn overlay(&self) -> &Overlay {
         &self.overlay
@@ -133,7 +145,7 @@ impl Bridge {
 
     /// Operation plans, in overlay order.
     pub fn plans(&self) -> Result<Vec<OpPlan>, String> {
-        plans(&self.command, &self.overlay, &self.tool)
+        plans_with_documents(&self.command, &self.overlay, &self.tool, &self.documents)
     }
 
     fn published_version(&self) -> String {
@@ -296,7 +308,12 @@ impl Call {
         })?;
         let value = outcome(&bridge.tool, &bridge.overlay, run)?;
         match &plan.result_file {
-            Some(rf) => read_result_file(temp.path(), rf, &bridge.overlay.text_key),
+            Some(rf) => read_result_file(
+                temp.path(),
+                rf,
+                &bridge.overlay.text_key,
+                bridge.overlay.max_stdout_bytes,
+            ),
             None => Ok(value),
         }
     }
@@ -332,9 +349,20 @@ impl Drop for TempDir {
 }
 
 /// Parse the op's result file after a successful run.
-fn read_result_file(dir: &Path, rf: &ResultFile, text_key: &str) -> Result<Value, CliError> {
+fn read_result_file(dir: &Path, rf: &ResultFile, text_key: &str, max_bytes: usize) -> Result<Value, CliError> {
     let name = rf.read.as_deref().or(rf.name.as_deref()).unwrap_or_default();
     let path = dir.join(name);
+    if let Ok(meta) = std::fs::metadata(&path) {
+        if meta.len() > max_bytes as u64 {
+            return Err(CliError::new(
+                ErrorCode::CommandFailed,
+                format!("the result file {name} is larger than {max_bytes} bytes"),
+            )
+            .tool_code("OUTPUT_TOO_LARGE")
+            .with("limit", Value::from(max_bytes))
+            .with("size", Value::from(meta.len())));
+        }
+    }
     let text = std::fs::read_to_string(&path).map_err(|e| {
         CliError::new(
             ErrorCode::CommandFailed,
@@ -345,6 +373,7 @@ fn read_result_file(dir: &Path, rf: &ResultFile, text_key: &str) -> Result<Value
     let parsed = match rf.format {
         ResultFormat::Json => serde_json::from_str(&text).map_err(|e| e.to_string()),
         ResultFormat::Csv => parse_csv(&text),
+        ResultFormat::Auto => serde_json::from_str(&text).or_else(|_| parse_csv(&text)),
         ResultFormat::Text => {
             let mut out = Record::new();
             out.insert(text_key.to_string(), Value::String(text.clone()));
@@ -524,6 +553,44 @@ fn child_call(
         }
     }
     let mut params = params.clone();
+    if let Some(doc) = &plan.document {
+        // The document: the op's document fields, or (open documents) every key that is not a CLI
+        // arg, an inline form or the result file.
+        let cli_names: Vec<&str> = plan
+            .bindings
+            .iter()
+            .map(|b| b.param.as_str())
+            .chain(
+                plan.inline
+                    .iter()
+                    .flat_map(|i| i.forms.iter().map(|f| f.param.as_str())),
+            )
+            .collect();
+        let mut body = Record::new();
+        for (key, value) in params.iter() {
+            let field = match &doc.fields {
+                Some(fields) => fields.iter().any(|f| f == key),
+                None => !cli_names.contains(&key.as_str()),
+            };
+            if field && !value.is_null() {
+                body.insert(key.clone(), value.clone());
+            }
+        }
+        for key in body.keys() {
+            params.remove(key);
+        }
+        let path = temp.join(&doc.file_name);
+        if materialize {
+            let text = serde_json::to_string(&Value::Object(body)).unwrap_or_default();
+            std::fs::write(&path, text).map_err(|e| {
+                CliError::new(
+                    ErrorCode::InternalError,
+                    format!("cannot write the input document: {e}"),
+                )
+            })?;
+        }
+        params.insert(doc.target.clone(), Value::String(path.to_string_lossy().into_owned()));
+    }
     if let Some(rf) = &plan.result_file {
         let path = rf.name.as_deref().map_or_else(|| temp.to_path_buf(), |n| temp.join(n));
         params.insert(rf.param.clone(), Value::String(path.to_string_lossy().into_owned()));
@@ -893,6 +960,42 @@ mod tests {
             .unwrap();
         assert_eq!(argv, ["go", "--out=<tmp>/r.csv", "--config=<tmp>/spec.json"]);
         assert!(p.schema.params.iter().all(|x| x.name != "out"));
+    }
+
+    #[test]
+    fn input_document_rules() {
+        use crate::types::{ParamSpec, ParamType};
+        let cmd = Command::new("t").subcommand(
+            Command::new("go")
+                .arg(Arg::new("input").long("input").required(true))
+                .arg(Arg::new("format").long("format")),
+        );
+        let text =
+            "[input_document]\nparam = \"input\"\n[[op]]\nname = \"go_op\"\ncommand = \"go\"\naccess = \"read\"\n";
+        let bridge = Bridge::new(cmd.clone(), text).unwrap();
+        let open = bridge.plans().unwrap().remove(0);
+        assert_eq!(open.schema.additional_params, Some(true));
+        assert!(open.schema.params.iter().all(|p| p.name != "input"));
+        let argv = bridge
+            .child_argv(&open, json!({"mass": 1, "format": "csv"}).as_object().unwrap())
+            .unwrap();
+        assert_eq!(
+            argv,
+            ["go", "--input=<tmp>/input.json", "--format=csv"],
+            "format stays a CLI arg, mass goes into the document"
+        );
+        let clash = Bridge::new(cmd.clone(), text)
+            .unwrap()
+            .document_params("go_op", vec![ParamSpec::new("format", ParamType::String)]);
+        assert!(clash.plans().unwrap_err().contains("document field format clashes"));
+        let typed = Bridge::new(cmd, text)
+            .unwrap()
+            .document_params("go_op", vec![ParamSpec::new("mass", ParamType::Number)]);
+        let p = typed.plans().unwrap().remove(0);
+        assert_eq!(p.document.as_ref().unwrap().fields, Some(vec!["mass".to_string()]));
+        assert_eq!(p.schema.additional_params, None);
+        let bad = "[input_document]\nparam = \"input\"\nfile_name = \"a/b.json\"\n";
+        assert!(Overlay::parse(bad).unwrap_err().contains("plain file name"));
     }
 
     #[test]

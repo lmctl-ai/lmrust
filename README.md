@@ -213,6 +213,9 @@ stdin = true                              # value piped to the child; its argv s
   turns a command that only writes files into one that returns data: the bridge passes a temp path, parses
   the file (CSV rows, JSON or text) as the result and removes it. An inline form with `via = "file"` writes
   its value (JSON, text or `kind = "toml"` from a map) to a temp file whose path the command reads.
+- **Input documents**: `[input_document] param = "input"` serves tools that read one JSON input file: the op's
+  fields (given with `Bridge::document_params`, e.g. generated from serde structs) are its params and are
+  written as the document the command reads; without fields any key is accepted.
 - **Policy**: write and dangerous ops follow `--dryrun`, `--readonly`, `--confirm` and the
   `<TOOL>_READONLY` / `<TOOL>_DRYRUN` env floors; a `dynamic` op is a write unless the tool
   registers `Bridge::dynamic_access(op, |params| ...)`.

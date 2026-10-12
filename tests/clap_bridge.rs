@@ -15,7 +15,16 @@ use std::process::Command;
 const FIXTURE_ENV: &str = "CLAP_FIXTURE";
 
 fn bridge() -> Bridge {
-    Bridge::new(clap_fixture::command(), clap_fixture::OVERLAY).expect("fixture overlay")
+    use lmrust::{Occurs, ParamSpec, ParamType};
+    Bridge::new(clap_fixture::command(), clap_fixture::OVERLAY)
+        .expect("fixture overlay")
+        .document_params(
+            "scenario_typed",
+            vec![
+                ParamSpec::new("mass", ParamType::Number).describe("Mass in kg"),
+                ParamSpec::new("label", ParamType::String).occurs(Occurs::Optional),
+            ],
+        )
 }
 
 fn fixture_main() -> i32 {
@@ -105,7 +114,9 @@ fn schema_is_deterministic_and_follows_lmapi() {
             "report_rows",
             "report_summary",
             "cfg_show",
-            "cfg_show_json"
+            "cfg_show_json",
+            "scenario_typed",
+            "scenario_open"
         ],
         "overlay order"
     );
@@ -437,6 +448,74 @@ fn inline_configs_are_written_to_temp_files() {
     assert_eq!(run.json["error"]["code"], "VALIDATION_ERROR");
 }
 
+// ---- input documents ----------------------------------------------------------------------
+
+fn typed_params_become_the_input_document() {
+    let doc = serde_json::to_value(bridge().schema().unwrap()).unwrap();
+    let op = |n: &str| {
+        doc["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["name"] == n)
+            .unwrap()
+            .clone()
+    };
+    let typed = op("scenario_typed");
+    let names: Vec<&str> = typed["params"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        ["outFormat", "mass", "label"],
+        "doc and output are the bridge's; the document fields are params"
+    );
+    assert!(typed.get("additionalParams").is_none());
+    assert_eq!(
+        op("scenario_open")["additionalParams"],
+        true,
+        "no generated fields: any key goes into the document"
+    );
+
+    let run = fixtool(&[
+        "scenario_typed",
+        "--input-json",
+        r#"{"mass":2.5,"label":"x","outFormat":"json"}"#,
+    ]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert_eq!(
+        run.json,
+        json!({"input": {"label": "x", "mass": 2.5}, "n": 2}),
+        "only the document fields, parsed JSON"
+    );
+    let run = fixtool(&["scenario_typed", "--mass", "4"]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert_eq!(
+        run.json,
+        json!([{"key": "mass", "value": 4}]),
+        "CSV output parsed as rows (format auto)"
+    );
+    let run = fixtool(&["scenario_typed", "--label", "only"]);
+    assert_eq!(run.code, 2, "a required document field is validated: {}", run.stdout);
+    let run = fixtool(&[
+        "scenario_open",
+        "--input-json",
+        r#"{"a":1,"b":[1,2],"outFormat":"json"}"#,
+    ]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert_eq!(run.json, json!({"input": {"a": 1, "b": [1, 2]}, "n": 2}));
+}
+
+fn oversized_result_files_are_refused() {
+    let big = "z".repeat(10_000);
+    let run = fixtool(&["scenario_open", "--input-json", &format!(r#"{{"blob":"{big}"}}"#)]);
+    assert_eq!(run.code, 1, "{}", run.stdout);
+    assert_eq!(run.json["error"]["data"]["tool_code"], "OUTPUT_TOO_LARGE");
+}
+
 // ---- policy -----------------------------------------------------------------------------------
 
 fn dangerous_writes_follow_policy() {
@@ -656,6 +735,11 @@ fn main() {
             "inline_configs_are_written_to_temp_files",
             inline_configs_are_written_to_temp_files,
         ),
+        (
+            "typed_params_become_the_input_document",
+            typed_params_become_the_input_document,
+        ),
+        ("oversized_result_files_are_refused", oversized_result_files_are_refused),
         ("dangerous_writes_follow_policy", dangerous_writes_follow_policy),
         ("exit_codes_map_to_lmapi_errors", exit_codes_map_to_lmapi_errors),
         (

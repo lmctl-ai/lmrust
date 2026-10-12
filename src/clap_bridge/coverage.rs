@@ -59,7 +59,7 @@ pub fn coverage_problems(command: &Command, overlay_toml: &str) -> Vec<String> {
     }
     let tool = overlay.tool.clone().unwrap_or_else(|| command.get_name().to_string());
     for op in &overlay.ops {
-        if let Err(e) = plan(&root, &overlay, op, &tool) {
+        if let Err(e) = plan(&root, &overlay, op, &tool, None) {
             out.push(e);
         }
     }

@@ -101,6 +101,28 @@ name = "cfg_show_json"
 command = "cfgshow"
 access = "read"
 
+[[op]]
+name = "scenario_typed"
+command = "scenario"
+access = "read"
+[op.result_file]
+param = "output"
+name = "result.out"
+format = "auto"
+
+[[op]]
+name = "scenario_open"
+command = "scenario"
+access = "read"
+[op.result_file]
+param = "output"
+name = "result.out"
+format = "auto"
+
+[input_document]
+param = "doc"
+file_name = "input.json"
+
 [inline_inputs.config]
 description = "Config file path, or settings/spec inline"
 [[inline_inputs.config.form]]
@@ -233,6 +255,18 @@ pub fn command() -> Command {
                 .arg(Arg::new("sidecar").long("sidecar").action(ArgAction::SetTrue)),
         )
         .subcommand(
+            Command::new("scenario")
+                .about("Read a JSON document, write a CSV or JSON result")
+                .arg(Arg::new("doc").long("doc").required(true))
+                .arg(Arg::new("output").long("output").required(true))
+                .arg(
+                    Arg::new("out_format")
+                        .long("out-format")
+                        .value_parser(["csv", "json"])
+                        .default_value("csv"),
+                ),
+        )
+        .subcommand(
             Command::new("cfgshow")
                 .about("Echo a config file")
                 .arg(Arg::new("config").long("config").required(true)),
@@ -341,6 +375,23 @@ pub fn legacy_main(args: Vec<String>) -> i32 {
                 std::fs::write(path.with_file_name(name), format!("{{\"n\": {rows}}}")).unwrap();
             }
             eprintln!("wrote {}", path.display());
+        }
+        Some(("scenario", m)) => {
+            let doc: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(m.get_one::<String>("doc").unwrap()).unwrap()).unwrap();
+            let obj = doc.as_object().cloned().unwrap_or_default();
+            let mut keys: Vec<&String> = obj.keys().collect();
+            keys.sort();
+            let text = if m.get_one::<String>("out_format").map(String::as_str) == Some("json") {
+                serde_json::json!({"input": doc, "n": obj.len()}).to_string()
+            } else {
+                let mut t = String::from("key,value\n");
+                for k in keys {
+                    t.push_str(&format!("{k},{}\n", obj[k].to_string().trim_matches('"')));
+                }
+                t
+            };
+            std::fs::write(m.get_one::<String>("output").unwrap(), text).unwrap();
         }
         Some(("cfgshow", m)) => {
             let path = std::path::PathBuf::from(m.get_one::<String>("config").unwrap());

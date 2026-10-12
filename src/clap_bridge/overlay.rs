@@ -64,6 +64,10 @@ pub struct Overlay {
     /// op with that param also accepts the listed forms, piped to stdin (see [`InlineInput`]).
     #[serde(default)]
     pub inline_inputs: BTreeMap<String, InlineInput>,
+    /// A command that reads one JSON document file (`--input scenario.json`): the arg is not
+    /// published; the op's document fields (supplied by the tool with
+    /// [`super::Bridge::document_params`], else any key) are composed into the document.
+    pub input_document: Option<InputDocument>,
     #[serde(rename = "op", default)]
     pub ops: Vec<OverlayOp>,
 }
@@ -111,6 +115,21 @@ pub struct OverlayOp {
     pub result_file: Option<ResultFile>,
 }
 
+/// See [`Overlay::input_document`].
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputDocument {
+    /// Published (camelCase) name of the input-file arg (`input`).
+    pub param: String,
+    /// Temp file name the document is written to (default `input.json`).
+    #[serde(default = "default_document_name")]
+    pub file_name: String,
+}
+
+fn default_document_name() -> String {
+    "input.json".into()
+}
+
 /// An op whose data is written to a file named by one of its args (`--output-path`). The arg is not
 /// published; every call gets `<temp dir>/<name>` (or the temp dir itself when `name` is absent),
 /// and after a successful run `<temp dir>/<read or name>` is parsed as the result. The temp dir and
@@ -137,6 +156,8 @@ pub enum ResultFormat {
     Json,
     /// The file text under the overlay's `text_key`.
     Text,
+    /// JSON when the file parses as JSON, else CSV (a command whose `--format` picks either).
+    Auto,
 }
 
 /// Settings of one op param.
@@ -343,6 +364,14 @@ impl Overlay {
                         out.push(format!("inline_inputs.{input}.{}: unknown op {op}", form.param));
                     }
                 }
+            }
+        }
+        if let Some(doc) = &self.input_document {
+            if !is_file_name(&doc.file_name) {
+                out.push(format!(
+                    "input_document: file_name {:?} must be a plain file name",
+                    doc.file_name
+                ));
             }
         }
         for (arg, ops) in &self.only_for {
