@@ -538,6 +538,9 @@ fn inline_plan(
     let spec = params.iter_mut().find(|p| p.name == target.param).expect("bound param");
     let required = spec.occurs.unwrap_or(Occurs::One) == Occurs::One;
     spec.occurs = Some(Occurs::Optional);
+    // A published default would be filled in by validation and collide with an inline form
+    // ("give only one of ..."); clap still applies the default when no source is given.
+    spec.default = None;
     if spec.description.is_none() {
         spec.description = inline.description.clone();
     }
@@ -707,6 +710,17 @@ mod tests {
         assert!(err(&form("left", "records")).contains("inline param records clashes"));
         assert!(err(&format!("[op.params.right]\nstdin = true\n{}", form("left", "a"))).contains("both need stdin"));
         let with_doc = "[inline_inputs.left]\ndescription = \"Table path\"\n[[inline_inputs.left.form]]\nparam = \"a\"\nkind = \"text\"\n";
+        let defaulted =
+            Command::new("t").subcommand(Command::new("go").arg(Arg::new("cfg").long("cfg").default_value("sim.toml")));
+        let cfg_form = "[inline_inputs.cfg]\n[[inline_inputs.cfg.form]]\nparam = \"a\"\nkind = \"text\"\n";
+        let p = &plans(&defaulted, &overlay(&format!("{op}{cfg_form}")), "t").unwrap()[0];
+        let cfg = p.schema.params.iter().find(|x| x.name == "cfg").unwrap();
+        assert_eq!(cfg.default, None, "an inline-capable input publishes no default");
+        assert_eq!(
+            p.bindings[0].default,
+            Some(serde_json::json!("sim.toml")),
+            "clap still applies it"
+        );
         let documented = plans(&cmd, &overlay(&format!("{op}{with_doc}")), "t").unwrap();
         let left = documented[0].schema.params.iter().find(|p| p.name == "left").unwrap();
         assert_eq!(

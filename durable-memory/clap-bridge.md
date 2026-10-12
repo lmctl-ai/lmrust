@@ -50,7 +50,8 @@ param's description when the clap arg has no help text) and one or more
 `[[inline_inputs.<param>.form]]` with `param` (published name), `kind` (`records`: array of objects written as a
 compact JSON array; `text`: a string written as is; `json`: any value as compact JSON), `args` (legacy args naming
 the stdin format, e.g. `["--from", "json"]`) and `description`. Every op that has `<param>` gets the forms as
-optional params and `<param>` itself becomes optional; a call gives exactly one of them (`VALIDATION_ERROR`
+optional params and `<param>` itself becomes optional and publishes no default (validation would fill it in and collide
+with a form; clap still applies the default when no source is given); a call gives exactly one of them (`VALIDATION_ERROR`
 `give only one of ...` / `one of ... is required` when the clap arg was required). With a form, its value is
 piped to stdin, the input's slot gets the token and the form's args follow the fixed args (before the JSON
 switch). Plan errors: an op with two inline inputs, an inline input plus a stdin param, a multi-value input,
