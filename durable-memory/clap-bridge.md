@@ -23,6 +23,7 @@ Top level (all optional):
 | `tool` | clap name | published tool name, env floor prefix (`<TOOL>_READONLY`) |
 | `description` | clap `about` | tool help summary |
 | `inputs` | `["flags", "json"]` | published input forms |
+| `returns` (per `[[op]]`) | `"object"` | declared result type: `object`, `array`, `string`, `number`, `boolean` or `null` |
 | `drop_globals` | `[]` | lmapi runner globals the tool owns (`format`) |
 | `excluded` | `[]` | clap command paths never published; a first word excludes a group |
 | `exclude_params` | `[]` | clap arg ids never published |

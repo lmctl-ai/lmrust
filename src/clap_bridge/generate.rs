@@ -563,7 +563,7 @@ pub(crate) fn plan(
     let mut schema = OperationSchema::new(op.name.clone())
         .access(access)
         .describe(description);
-    schema.returns = Some(ReturnType::Object);
+    schema.returns = Some(op.returns.unwrap_or(ReturnType::Object));
     schema.params = params;
     if open {
         schema.additional_params = Some(true);
@@ -742,6 +742,13 @@ mod tests {
         let files = p.bindings.iter().find(|b| b.param == "files").unwrap();
         assert_eq!((files.multi, files.append, files.delimiter), (true, false, None));
         assert_eq!(p.bindings.iter().find(|b| b.param == "repo").unwrap().level, 1);
+    }
+
+    #[test]
+    fn generated_schema_uses_overlay_return_type() {
+        let o = overlay("[[op]]\nname = \"s\"\ncommand = \"solo\"\naccess = \"read\"\nreturns = \"array\"\n");
+        let p = &plans(&toy(), &o, "toy").unwrap()[0];
+        assert_eq!(p.schema.returns, Some(ReturnType::Array));
     }
 
     #[test]

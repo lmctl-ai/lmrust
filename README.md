@@ -181,6 +181,7 @@ timeout_ms = 600000                       # optional deadline (TIMEOUT, exit 7)
 name = "stats_summary"                    # published name: snake_case, never a legacy subcommand name
 command = "stats"                         # clap command path ("data load" for nested commands)
 access = "read"                           # required: read | write | dynamic
+returns = "array"                         # optional: object | array | string | number | boolean | null (default object)
 
 [[op]]
 name = "data_import"
@@ -193,7 +194,8 @@ stdin = true                              # value piped to the child; its argv s
 
 - **Schema**: one operation per `[[op]]`, generated from clap: long flags (camelCase names),
   shorts and visible aliases, `occurs` (`1 ? + *`), number / boolean / enum types, defaults,
-  positionals and help text. Deterministic: ops in overlay order, params in clap order with
+  positionals and help text. `returns` declares each op's top-level result JSON type (default
+  `object`). Deterministic: ops in overlay order, params in clap order with
   positionals last. `tool` and `version` come from clap (or the overlay / `Bridge::version`),
   `inputs` defaults to flags + JSON, `product` is omitted.
 - **Calls**: comma lists (`value_delimiter`) are joined, repeated flags (`Append`) repeated,

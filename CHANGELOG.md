@@ -3,6 +3,8 @@
 ## 0.1.3
 
 ### Added
+- Clap bridge overlays can declare each operation's top-level JSON result type with `returns`
+  (`object`, `array`, `string`, `number`, `boolean` or `null`; default `object`).
 - Cargo feature `clap` (off by default): `lmrust::clap_bridge`, generalised from lmprobe's lmapi
   bridge. `Bridge::new(clap::Command, overlay_toml)` publishes a deterministic `cli.schema.v1`
   document generated from the clap tree plus an overlay (op names, required `access`,

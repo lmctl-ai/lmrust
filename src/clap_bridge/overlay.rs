@@ -4,6 +4,7 @@
 
 use crate::server::ErrorCode;
 use crate::types::InputForm;
+use crate::types::ReturnType;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -91,6 +92,8 @@ pub struct OverlayOp {
     /// Clap command path, words separated by spaces (`data load`).
     pub command: String,
     pub access: OverlayAccess,
+    /// Declared top-level result type (default `object`).
+    pub returns: Option<ReturnType>,
     /// Requires `--confirm` (exit 9 without it). Only for write or dynamic ops.
     #[serde(default)]
     pub dangerous: bool,
@@ -422,6 +425,15 @@ mod tests {
         let err = Overlay::parse(&format!("[exit_codes]\n\"x\" = \"NOPE\"\n{OP}access = \"read\"\n")).unwrap_err();
         assert!(
             err.contains("not an exit code") && err.contains("unknown lmapi error code NOPE"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn invalid_return_type_has_clear_error() {
+        let err = Overlay::parse(&format!("{OP}access = \"read\"\nreturns = \"tuple\"\n")).unwrap_err();
+        assert!(
+            err.contains("returns") && err.contains("object") && err.contains("array"),
             "{err}"
         );
     }
