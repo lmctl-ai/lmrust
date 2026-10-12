@@ -461,7 +461,7 @@ fn stdin_text(value: &Value) -> Option<String> {
 /// lists (`value_delimiter`) are joined into one argument; an item containing the delimiter is
 /// a `VALIDATION_ERROR`.
 pub fn legacy_argv(plan: &OpPlan, params: &Record) -> Result<Vec<String>, CliError> {
-    build_argv(plan, params, &[], &[], None)
+    build_argv(plan, params, &[], &[], &[])
 }
 
 /// The inline form a call uses: `Ok(None)` when the input itself (or nothing optional) is given.
@@ -517,18 +517,20 @@ fn child_call(
     } else {
         &[]
     };
-    let form = match &plan.inline {
-        Some(inline) => chosen_inline(inline, params)?.map(|form| (inline, form)),
-        None => None,
-    };
+    let mut chosen = Vec::new();
+    for inline in &plan.inline {
+        if let Some(form) = chosen_inline(inline, params)? {
+            chosen.push((inline, form));
+        }
+    }
     let mut params = params.clone();
     if let Some(rf) = &plan.result_file {
         let path = rf.name.as_deref().map_or_else(|| temp.to_path_buf(), |n| temp.join(n));
         params.insert(rf.param.clone(), Value::String(path.to_string_lossy().into_owned()));
     }
     let mut stdin = None;
-    let mut token = String::new();
-    if let Some((inline, f)) = form {
+    let mut tokens = Vec::new();
+    for (inline, f) in &chosen {
         let text = inline_text(f.kind, &f.param, &params[&f.param])?;
         match (f.via, &f.file_name) {
             (InlineVia::File, Some(name)) => {
@@ -541,21 +543,25 @@ fn child_call(
                         )
                     })?;
                 }
-                token = path.to_string_lossy().into_owned();
+                tokens.push(path.to_string_lossy().into_owned());
             }
             _ => {
                 stdin = Some(text);
-                token = inline.token.clone();
+                tokens.push(inline.token.clone());
             }
         }
     }
-    let inline = form.map(|(inline, f)| InlineArgs {
-        target: &inline.target,
-        token: &token,
-        args: &f.args,
-    });
+    let inline: Vec<InlineArgs> = chosen
+        .iter()
+        .zip(&tokens)
+        .map(|((inline, f), token)| InlineArgs {
+            target: &inline.target,
+            token,
+            args: &f.args,
+        })
+        .collect();
     Ok((
-        build_argv(plan, &params, &overlay.legacy_root_args, json, inline)?,
+        build_argv(plan, &params, &overlay.legacy_root_args, json, &inline)?,
         stdin,
     ))
 }
@@ -572,7 +578,7 @@ fn build_argv(
     params: &Record,
     root: &[String],
     json: &[String],
-    inline: Option<InlineArgs<'_>>,
+    inline: &[InlineArgs<'_>],
 ) -> Result<Vec<String>, CliError> {
     let mut argv: Vec<String> = root.to_vec();
     let mut positionals: Vec<(&Binding, Vec<String>)> = Vec::new();
@@ -580,7 +586,7 @@ fn build_argv(
     for (level, word) in plan.words.iter().enumerate() {
         argv.push(word.clone());
         for b in plan.bindings.iter().filter(|b| b.level == level) {
-            if let Some(inline) = inline.as_ref().filter(|i| i.target == b.param) {
+            if let Some(inline) = inline.iter().find(|i| i.target == b.param) {
                 // The inline value goes to stdin; the input's slot gets the token (`-`).
                 let token = inline.token.to_string();
                 match &b.slot {
@@ -671,8 +677,8 @@ fn build_argv(
         }
     }
     argv.extend(plan.fixed_args.iter().cloned());
-    if let Some(inline) = &inline {
-        argv.extend(inline.args.iter().cloned());
+    for i in inline {
+        argv.extend(i.args.iter().cloned());
     }
     argv.extend(json.iter().cloned());
     positionals.sort_by_key(|(b, _)| match b.slot {
@@ -681,7 +687,7 @@ fn build_argv(
     });
     let needs_separator = greedy
         || positionals.iter().any(|(b, vs)| {
-            let token_slot = b.stdin_token.is_some() || inline.as_ref().is_some_and(|i| i.target == b.param);
+            let token_slot = b.stdin_token.is_some() || inline.iter().any(|i| i.target == b.param);
             matches!(b.slot, Slot::Positional { last: true, .. })
                 || vs.iter().any(|v| v.starts_with('-') && !token_slot)
         });

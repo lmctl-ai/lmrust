@@ -93,8 +93,8 @@ pub struct OpPlan {
     pub fixed_args: Vec<String>,
     /// Append the overlay's `legacy_json_args`.
     pub legacy_json: bool,
-    /// The op's inline-capable input, if any.
-    pub inline: Option<InlinePlan>,
+    /// The op's inline-capable inputs (at most one of them with stdin forms).
+    pub inline: Vec<InlinePlan>,
     /// The op's data comes back through a file (overlay `result_file`).
     pub result_file: Option<ResultFile>,
 }
@@ -443,7 +443,27 @@ pub(crate) fn plan(root: &Command, overlay: &Overlay, op: &OverlayOp, tool: &str
             }
         }
     }
-    let inline = inline_plan(overlay, op, &mut params, &bindings)?;
+    let mut inline = Vec::new();
+    for target in bindings
+        .iter()
+        .filter(|b| b.slot != Slot::StdinOnly && overlay.inline_inputs.contains_key(&b.param))
+    {
+        if let Some(plan) = inline_plan(overlay, op, &mut params, &bindings, target)? {
+            inline.push(plan);
+        }
+    }
+    let stdin_users: Vec<&str> = inline
+        .iter()
+        .filter(|i| i.forms.iter().any(|f| f.via == InlineVia::Stdin))
+        .map(|i| i.target.as_str())
+        .collect();
+    if stdin_users.len() > 1 {
+        return Err(format!(
+            "op {}: more than one inline input uses stdin ({})",
+            op.name,
+            stdin_users.join(", ")
+        ));
+    }
     if let Some(rf) = &op.result_file {
         let at = params.iter().position(|p| p.name == rf.param).ok_or_else(|| {
             format!(
@@ -491,29 +511,14 @@ pub(crate) fn plan(root: &Command, overlay: &Overlay, op: &OverlayOp, tool: &str
     })
 }
 
-/// Apply `inline_inputs` to one op: the input becomes optional and the forms are added.
+/// Apply `inline_inputs` to one input of an op: the input becomes optional and the forms are added.
 fn inline_plan(
     overlay: &Overlay,
     op: &OverlayOp,
     params: &mut Vec<ParamSpec>,
     bindings: &[Binding],
+    target: &Binding,
 ) -> Result<Option<InlinePlan>, String> {
-    let targets: Vec<&Binding> = bindings
-        .iter()
-        .filter(|b| b.slot != Slot::StdinOnly && overlay.inline_inputs.contains_key(&b.param))
-        .collect();
-    let target = match targets.as_slice() {
-        [] => return Ok(None),
-        [one] => *one,
-        many => {
-            let names: Vec<&str> = many.iter().map(|b| b.param.as_str()).collect();
-            return Err(format!(
-                "op {}: more than one inline input ({})",
-                op.name,
-                names.join(", ")
-            ));
-        }
-    };
     if target.multi || target.kind != ValueKind::Value {
         return Err(format!(
             "op {}: inline input {} must be a single value",
@@ -705,7 +710,40 @@ mod tests {
         let op = "[[op]]\nname = \"go_op\"\ncommand = \"go\"\naccess = \"read\"\n";
         let err = |extra: &str| plans(&cmd, &overlay(&format!("{op}{extra}")), "t").unwrap_err();
         assert!(err(&format!("{}{}", form("left", "a"), form("right", "b")))
-            .contains("more than one inline input (left, right)"));
+            .contains("more than one inline input uses stdin (left, right)"));
+        let file_form = |input: &str, param: &str| {
+            format!(
+                "[inline_inputs.{input}]\n[[inline_inputs.{input}.form]]\nparam = \"{param}\"\nkind = \"json\"\nvia = \"file\"\nfile_name = \"{param}.json\"\n"
+            )
+        };
+        let two = plans(
+            &cmd,
+            &overlay(&format!("{op}{}{}", file_form("left", "a"), form("right", "b"))),
+            "t",
+        )
+        .unwrap();
+        let targets: Vec<&str> = two[0].inline.iter().map(|i| i.target.as_str()).collect();
+        assert_eq!(
+            targets,
+            ["left", "right"],
+            "file-delivered inputs combine with one stdin input"
+        );
+        let bridge = crate::clap_bridge::Bridge::new(
+            cmd.clone(),
+            &format!("{op}{}{}", file_form("left", "a"), form("right", "b")),
+        )
+        .unwrap();
+        let argv = bridge
+            .child_argv(
+                &two[0],
+                serde_json::json!({"a": {"k": 1}, "b": "text"}).as_object().unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            argv,
+            ["go", "<tmp>/a.json", "-"],
+            "file path in left's slot, stdin token in right's"
+        );
         assert!(err(&form("many", "a")).contains("must be a single value"));
         assert!(err(&form("left", "records")).contains("inline param records clashes"));
         assert!(err(&format!("[op.params.right]\nstdin = true\n{}", form("left", "a"))).contains("both need stdin"));
@@ -734,7 +772,7 @@ mod tests {
             "t",
         )
         .unwrap();
-        let inline = ok[0].inline.as_ref().unwrap();
+        let inline = &ok[0].inline[0];
         assert_eq!(
             (inline.target.as_str(), inline.required, inline.token.as_str()),
             ("left", true, "-")

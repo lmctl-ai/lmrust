@@ -54,7 +54,8 @@ optional params and `<param>` itself becomes optional and publishes no default (
 with a form; clap still applies the default when no source is given); a call gives exactly one of them (`VALIDATION_ERROR`
 `give only one of ...` / `one of ... is required` when the clap arg was required). With a form, its value is
 piped to stdin, the input's slot gets the token and the form's args follow the fixed args (before the JSON
-switch). Plan errors: an op with two inline inputs, an inline input plus a stdin param, a multi-value input,
+switch). An op may have several inline inputs, but at most one with stdin forms. Plan errors: two inputs with stdin
+forms, a stdin form plus a stdin param, a multi-value input,
 a form name that clashes with an op param. This is how a script passes rows it computed without a temp file.
 
 Form keys added for lmsim: `via = "stdin"` (default) | `"file"` (the value is written to `<temp dir>/<file_name>`
