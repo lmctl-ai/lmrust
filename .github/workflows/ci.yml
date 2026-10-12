@@ -81,6 +81,10 @@ jobs:
         if: matrix.features == 'no-default-features'
         run: cargo test --locked --no-default-features --features modules
 
+      - name: cargo test (no default features, clap bridge)
+        if: matrix.features == 'no-default-features'
+        run: cargo test --locked --no-default-features --features clap
+
       - name: Build the example tool
         run: cargo build --locked --examples ${{ matrix.features == 'all-features' && '--all-features' || matrix.features == 'no-default-features' && '--no-default-features' || '' }}
 

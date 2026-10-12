@@ -13,6 +13,7 @@ module you are touching:
 - [server-runtime.md](server-runtime.md): `run_cli`, `CliSpec`, envelopes, exit codes, product check.
 - [policy.md](policy.md): dry-run, read-only, confirmation, env floors.
 - [modules.md](modules.md): the `@owner/repo` store (feature `modules`).
+- [clap-bridge.md](clap-bridge.md): `clap_bridge` (feature `clap`): clap tree + overlay TOML as a native lmapi tool.
 
 ## What it is
 
@@ -30,6 +31,7 @@ Modules mirror lmts files one to one:
 | `encode.ts`, `help.ts`, `publish.ts`, `interpret.ts`, `version.ts` | same names |
 | `server/*.ts` | `server/*.rs` |
 | `modules/*.ts` | `modules/*.rs` (+ `http.rs`, `time.rs`) |
+| (none) | `clap_bridge/*.rs` (lmrust-only, from lmprobe) |
 
 ## Decisions
 
@@ -47,14 +49,16 @@ Modules mirror lmts files one to one:
   order are gated on the feature (`encode_edge_cases`, `booleans_use_k_and_no_k`,
   `print_result_formats_json_to_stdout`, the `encode_argv` doc-test); the `meta.json` layout tests
   read key order from the file text, so they hold either way. CI runs default, `--all-features`,
-  `--no-default-features` and `--no-default-features --features modules`.
+  `--no-default-features`, `--no-default-features --features modules` and
+  `--no-default-features --features clap`.
 - **Synchronous everywhere** (no async runtime): `run_cli` and handlers are sync; process
   execution uses `std::process` with a polling deadline and an `AtomicBool` cancel flag in
   place of an `AbortSignal`.
 - **Minimal core dependencies**: serde, serde_json and regex-lite (for the product
   detection pattern: counting capture groups in `parse_published_schema` and matching in the
   product check). The version range matcher is in-house (`version.rs`) because ranges are
-  1 to 4 plain comparators. The store (`modules` feature) adds ureq (rustls) and sha2.
+  1 to 4 plain comparators. The store (`modules` feature) adds ureq (rustls) and sha2; the clap
+  bridge (`clap` feature) adds clap 4.5 (`std` only) and toml 0.8.
 - **Permissions/approval are deferred by decision**: only the inert lmts defaults exist
   (missing `access` = effectful, env floors, reserved names). Do not add approval machinery.
 - Commits: identity `Mike Ma <mike.ma@lmctl.com>`, one `Co-Authored-By:` per contributing model.

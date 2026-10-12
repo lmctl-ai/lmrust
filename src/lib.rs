@@ -17,6 +17,8 @@
 //!   flags, JSON envelopes, exit codes, product version checks).
 //! - **Module store** (`modules`, cargo feature `modules`): the `@owner/repo` schema
 //!   cache shared with lmts.
+//! - **Clap bridge** (`clap_bridge`, cargo feature `clap`): a clap command tree plus an
+//!   overlay TOML becomes a native lmapi tool that self-execs its legacy CLI.
 //!
 //! ```
 //! use lmrust::{validate, OperationSchema, ParamSpec, ParamType, ValidationOptions};
@@ -36,6 +38,8 @@
 pub struct ReadmeDoctests;
 
 pub mod argv_form;
+#[cfg(feature = "clap")]
+pub mod clap_bridge;
 pub mod encode;
 pub mod graphql_form;
 pub mod help;

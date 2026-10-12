@@ -14,7 +14,10 @@ passes every lmapi conformance vector. Use it to
 - **call lmapi tools from Rust**: validate and encode inputs, check published documents,
   interpret LLM-produced command lines safely (no shell, ever), render tool descriptions for
   prompts;
-- **use `@owner/repo` schema modules** (feature `modules`): the same on-disk cache as lmts.
+- **use `@owner/repo` schema modules** (feature `modules`): the same on-disk cache as lmts;
+- **make an existing clap CLI lmapi-native** (feature `clap`): its `clap::Command` plus an
+  overlay TOML become a published schema, and every operation self-execs the legacy CLI
+  ([Clap bridge](#clap-bridge-make-a-clap-cli-lmapi-native)).
 
 ```toml
 [dependencies]
@@ -116,6 +119,7 @@ assert_eq!(issues[0].suggestion.as_deref(), Some("message"));
 | (core) | yes | types, validate, argv/JSON/GraphQL forms, encode, help, publish, interpret, version, `server` | serde, serde_json (`preserve_order`), regex-lite |
 | `preserve_order` | yes | insertion-ordered JSON objects, as lmts (`serde_json/preserve_order`) | (feature of serde_json) |
 | `modules` | no | `lmrust::modules`: the `@owner/repo[#latest\|#dev]` schema store | + ureq (rustls, HTTPS only), sha2 |
+| `clap` | no | `lmrust::clap_bridge`: a clap command tree + overlay TOML served as a native lmapi tool | + clap 4.5 (`std` only), toml 0.8 |
 
 **Embedding in a binary with its own JSON output:** Cargo unifies features, so the default
 `preserve_order` also switches every `serde_json::Value` the host binary prints from sorted keys
@@ -123,7 +127,7 @@ to insertion order. A tool whose existing output relies on sorted keys (golden f
 envelopes) depends on lmrust with `default-features = false`:
 
 ```toml
-lmrust = { git = "https://github.com/lmctl-ai/lmrust", tag = "v0.1.2", default-features = false }
+lmrust = { git = "https://github.com/lmctl-ai/lmrust", tag = "v0.1.3", default-features = false }
 ```
 
 Everything works the same without it; only the key order of JSON objects lmrust builds (e.g. the
@@ -131,6 +135,82 @@ order `encode_argv` emits flags in, or keys inside `data` records) follows sorte
 insertion order.
 
 No async runtime anywhere. MSRV: Rust 1.79 (CI runs the suite on 1.79 and stable).
+
+## Clap bridge: make a clap CLI lmapi-native
+
+With feature `clap`, a tool crate needs only its `clap::Command`, an overlay TOML and a few
+lines of `main`. Legacy invocations are untouched (lmapi protocol 6.1); lmapi-shaped ones
+(`--schema`, a published op name, `--input-json`, ...) are served from the clap tree, and each
+operation runs the tool itself (`std::env::current_exe()`) with the legacy argv rebuilt from the
+validated params.
+
+```toml
+lmrust = { git = "https://github.com/lmctl-ai/lmrust", tag = "v0.1.3", features = ["clap"] }
+```
+
+```rust,ignore
+fn main() {
+    let bridge = lmrust::clap_bridge::Bridge::new(cli::command(), include_str!("../lmapi/overlay.toml"))
+        .expect("lmapi overlay")
+        .version(env!("CARGO_PKG_VERSION"));
+    if let Some(code) = bridge.maybe_run(std::env::args_os().skip(1)) {
+        std::process::exit(code);
+    }
+    cli::run(); // the tool's own clap parsing, unchanged
+}
+
+#[test]
+fn lmapi_overlay_covers_the_cli() {
+    lmrust::clap_bridge::assert_coverage(&cli::command(), include_str!("../lmapi/overlay.toml"));
+}
+```
+
+```toml
+# lmapi/overlay.toml
+drop_globals = ["format"]                 # the tool owns --format; lmapi does not publish its own
+legacy_json_args = ["--format", "json"]   # the tool's JSON switch, added to every self-exec call
+exclude_params = ["format"]               # clap args never published
+excluded = ["serve"]                      # clap commands never published
+success_exit_codes = [0]                  # other exits are errors ...
+timeout_ms = 600000                       # optional deadline (TIMEOUT, exit 7)
+
+[exit_codes]
+"4" = "NOT_FOUND"                         # ... COMMAND_FAILED unless mapped here
+
+[[op]]
+name = "stats_summary"                    # published name: snake_case, never a legacy subcommand name
+command = "stats"                         # clap command path ("data load" for nested commands)
+access = "read"                           # required: read | write | dynamic
+
+[[op]]
+name = "data_import"
+command = "data load"
+access = "write"
+dangerous = true                          # needs --confirm (exit 9 without it)
+[op.params.source]
+stdin = true                              # value piped to the child; its argv slot gets "-"
+```
+
+- **Schema**: one operation per `[[op]]`, generated from clap: long flags (camelCase names),
+  shorts and visible aliases, `occurs` (`1 ? + *`), number / boolean / enum types, defaults,
+  positionals and help text. Deterministic: ops in overlay order, params in clap order with
+  positionals last. `tool` and `version` come from clap (or the overlay / `Bridge::version`),
+  `inputs` defaults to flags + JSON, `product` is omitted.
+- **Calls**: comma lists (`value_delimiter`) are joined, repeated flags (`Append`) repeated,
+  counts repeated, booleans passed as bare flags, values equal to the default left out.
+  JSON on the child's stdout is the result; other output is returned as `{"text": "..."}`
+  (`text_key`). Stdout is capped (`max_stdout_bytes`, default 16 MiB: `OUTPUT_TOO_LARGE`),
+  stderr truncated (`max_stderr_bytes`).
+- **Failures**: an exit code outside `success_exit_codes` becomes `exit_codes[code]` or
+  `COMMAND_FAILED` (a Rust panic, 101, is `INTERNAL_ERROR`) with `data.tool_code = "EXIT_<n>"`,
+  `data.legacy_exit_code`, `data.stderr` and the parsed stdout under `data.result`. A child
+  killed by a signal is `INTERNAL_ERROR` / `SIGNALED`, even when it printed a result first.
+- **Policy**: write and dangerous ops follow `--dryrun`, `--readonly`, `--confirm` and the
+  `<TOOL>_READONLY` / `<TOOL>_DRYRUN` env floors; a `dynamic` op is a write unless the tool
+  registers `Bridge::dynamic_access(op, |params| ...)`.
+
+Full overlay reference: [durable-memory/clap-bridge.md](durable-memory/clap-bridge.md).
+Consumers on Rust 1.79 need clap 4.5 in their lockfile (clap 4.6 requires Rust 1.85).
 
 ## Parity with lmts
 

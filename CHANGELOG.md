@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.3
+
+### Added
+- Cargo feature `clap` (off by default): `lmrust::clap_bridge`, generalised from lmprobe's lmapi
+  bridge. `Bridge::new(clap::Command, overlay_toml)` publishes a deterministic `cli.schema.v1`
+  document generated from the clap tree plus an overlay (op names, required `access`,
+  `dangerous`, parameter exclusions, `drop_globals`, `inputs`), and serves each operation by
+  self-executing `std::env::current_exe()` (`Bridge::exe` overrides it) with the legacy argv rebuilt
+  in schema order. Overlay keys for the tool's JSON switch (`legacy_json_args`), root args, stdin
+  params (`[op.params.x] stdin = true`), exit-code mapping (`success_exit_codes`, `exit_codes`),
+  output caps, a deadline and the text-result key. A signal-killed child is `INTERNAL_ERROR`
+  (`SIGNALED`), never a success. `assert_coverage` / `coverage_problems` check that every clap leaf is
+  published or excluded and that no published name equals a legacy subcommand name or alias.
+- Dependencies of the feature: clap 4.5 (`std` only; 4.5.x keeps the 1.79 MSRV, clap 4.6 needs
+  1.85) and toml 0.8. Default features and their dependencies are unchanged.
+
 ## 0.1.2
 
 ### Fixed
