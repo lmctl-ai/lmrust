@@ -45,7 +45,8 @@ root-level arg is published), `legacy_json` (false: no JSON switch for this op),
 `[op.params.<publishedName>]` with `stdin`, `stdin_token` (default `-`, `""` = no argv slot),
 `description`, `list`.
 
-`[inline_inputs.<param>]`: `token` (default `-`, what the input's argv slot receives) and one or more
+`[inline_inputs.<param>]`: `token` (default `-`, what the input's argv slot receives), `description` (the input
+param's description when the clap arg has no help text) and one or more
 `[[inline_inputs.<param>.form]]` with `param` (published name), `kind` (`records`: array of objects written as a
 compact JSON array; `text`: a string written as is; `json`: any value as compact JSON), `args` (legacy args naming
 the stdin format, e.g. `["--from", "json"]`) and `description`. Every op that has `<param>` gets the forms as

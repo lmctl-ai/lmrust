@@ -507,6 +507,9 @@ fn inline_plan(
     let spec = params.iter_mut().find(|p| p.name == target.param).expect("bound param");
     let required = spec.occurs.unwrap_or(Occurs::One) == Occurs::One;
     spec.occurs = Some(Occurs::Optional);
+    if spec.description.is_none() {
+        spec.description = inline.description.clone();
+    }
     let mut forms = Vec::new();
     for form in &inline.forms {
         if params.iter().any(|p| p.name == form.param) {
@@ -669,6 +672,14 @@ mod tests {
         assert!(err(&form("many", "a")).contains("must be a single value"));
         assert!(err(&form("left", "records")).contains("inline param records clashes"));
         assert!(err(&format!("[op.params.right]\nstdin = true\n{}", form("left", "a"))).contains("both need stdin"));
+        let with_doc = "[inline_inputs.left]\ndescription = \"Table path\"\n[[inline_inputs.left.form]]\nparam = \"a\"\nkind = \"text\"\n";
+        let documented = plans(&cmd, &overlay(&format!("{op}{with_doc}")), "t").unwrap();
+        let left = documented[0].schema.params.iter().find(|p| p.name == "left").unwrap();
+        assert_eq!(
+            left.description.as_deref(),
+            Some("Table path"),
+            "used when clap has no help"
+        );
         let ok = plans(
             &cmd,
             &overlay(&format!("named_positionals = true\n{op}{}", form("left", "a"))),

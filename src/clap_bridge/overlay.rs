@@ -137,6 +137,8 @@ pub struct InlineInput {
     /// What the input's argv slot receives (default `-`).
     #[serde(default = "dash")]
     pub token: String,
+    /// Description of the input param, used when the clap arg has no help text.
+    pub description: Option<String>,
     #[serde(rename = "form", default)]
     pub forms: Vec<InlineForm>,
 }
