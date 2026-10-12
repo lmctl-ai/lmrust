@@ -56,6 +56,20 @@ piped to stdin, the input's slot gets the token and the form's args follow the f
 switch). Plan errors: an op with two inline inputs, an inline input plus a stdin param, a multi-value input,
 a form name that clashes with an op param. This is how a script passes rows it computed without a temp file.
 
+Form keys added for lmsim: `via = "stdin"` (default) | `"file"` (the value is written to `<temp dir>/<file_name>`
+and that path takes the input's argv slot: a tool that only reads config files), `file_name`, and `ops` (published
+op names the form applies to; an op left with no form keeps a plain path input). Kind `toml` writes a JSON object
+as TOML (`toml::to_string`; a null is a `VALIDATION_ERROR`). The stdin-conflict plan error applies only to stdin forms.
+
+`[op.result_file]`: `param` (published name of the command's output-path arg; no longer published), `name` (file
+name passed as `<temp dir>/<name>`; absent: the temp dir itself), `read` (file to parse when it is not `name`, e.g.
+a `x.csv.summary.json` sidecar), `format` (`csv`: RFC 4180 header + rows as an array of objects, cells typed as
+number/boolean/null(empty)/string; `json`; `text`: `{text_key: ...}`). Every call gets a private temp dir
+(`lmrust-clap-bridge-<pid>-<nanos>-<n>` under the OS temp dir, removed on drop, also after failures); after a
+successful run the file is the result (a missing file is `COMMAND_FAILED` / `NO_RESULT_FILE`, an unparsable one
+`BAD_RESULT_FILE`). Files the command derives from the output path (sidecars) land in the same dir. Access is
+still the overlay's: an op is only `read` when nothing it writes can land outside that dir.
+
 ## Rules and decisions
 
 - **argv order**: `legacy_root_args`, then each command word followed by its level's flags (clap

@@ -41,7 +41,10 @@ mod overlay;
 
 pub use coverage::{assert_coverage, coverage_problems};
 pub use generate::{camel, plans, Binding, InlineFormPlan, InlinePlan, OpPlan, Slot, ValueKind};
-pub use overlay::{InlineForm, InlineInput, InlineKind, Overlay, OverlayAccess, OverlayOp, OverlayParam};
+pub use overlay::{
+    InlineForm, InlineInput, InlineKind, InlineVia, Overlay, OverlayAccess, OverlayOp, OverlayParam, ResultFile,
+    ResultFormat,
+};
 
 use crate::server::{
     check_policy, is_lmapi_invocation, print_error, run_cli_io, CheckContext, CliError, CliSpec, ErrorCode, OpDef,
@@ -53,7 +56,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -232,8 +235,9 @@ impl Bridge {
 
     /// The full argv a call of `plan` passes to the executable: [`legacy_argv`] plus the
     /// overlay's `legacy_root_args` and `legacy_json_args`.
+    /// Temp paths (result files, file-delivered inline values) appear under `<tmp>`.
     pub fn child_argv(&self, plan: &OpPlan, params: &Record) -> Result<Vec<String>, CliError> {
-        Ok(child_call(plan, &self.overlay, params)?.0)
+        Ok(child_call(plan, &self.overlay, params, Path::new("<tmp>"), false)?.0)
     }
 
     fn executable(&self) -> Result<PathBuf, CliError> {
@@ -258,7 +262,8 @@ impl Call {
     fn run(&self, params: &Record, policy: &Policy) -> Result<Value, CliError> {
         let bridge = &self.bridge;
         let plan = &self.plan;
-        let (argv, inline_stdin) = child_call(plan, &bridge.overlay, params)?;
+        let temp = TempDir::new()?;
+        let (argv, inline_stdin) = child_call(plan, &bridge.overlay, params, temp.path(), true)?;
         let access = match plan.access {
             Access::Dynamic => bridge
                 .dynamic
@@ -289,7 +294,148 @@ impl Call {
             child::SpawnError::Input(message) => CliError::new(ErrorCode::ValidationError, message),
             child::SpawnError::Internal(message) => CliError::new(ErrorCode::InternalError, message),
         })?;
-        outcome(&bridge.tool, &bridge.overlay, run)
+        let value = outcome(&bridge.tool, &bridge.overlay, run)?;
+        match &plan.result_file {
+            Some(rf) => read_result_file(temp.path(), rf, &bridge.overlay.text_key),
+            None => Ok(value),
+        }
+    }
+}
+
+static TEMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A private temp directory for one call (result files, file-delivered inline values), removed on drop.
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new() -> Result<TempDir, CliError> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let n = TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("lmrust-clap-bridge-{}-{nanos}-{n}", std::process::id()));
+        std::fs::create_dir(&dir)
+            .map_err(|e| CliError::new(ErrorCode::InternalError, format!("cannot create a temp directory: {e}")))?;
+        Ok(TempDir(dir))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Parse the op's result file after a successful run.
+fn read_result_file(dir: &Path, rf: &ResultFile, text_key: &str) -> Result<Value, CliError> {
+    let name = rf.read.as_deref().or(rf.name.as_deref()).unwrap_or_default();
+    let path = dir.join(name);
+    let text = std::fs::read_to_string(&path).map_err(|e| {
+        CliError::new(
+            ErrorCode::CommandFailed,
+            format!("the command did not write its result file {name}: {e}"),
+        )
+        .tool_code("NO_RESULT_FILE")
+    })?;
+    let parsed = match rf.format {
+        ResultFormat::Json => serde_json::from_str(&text).map_err(|e| e.to_string()),
+        ResultFormat::Csv => parse_csv(&text),
+        ResultFormat::Text => {
+            let mut out = Record::new();
+            out.insert(text_key.to_string(), Value::String(text.clone()));
+            Ok(Value::Object(out))
+        }
+    };
+    parsed.map_err(|e| {
+        CliError::new(
+            ErrorCode::CommandFailed,
+            format!("cannot parse the result file {name}: {e}"),
+        )
+        .tool_code("BAD_RESULT_FILE")
+    })
+}
+
+/// RFC 4180 CSV with a header row as an array of row objects. Cells: empty is null, `true`/`false`
+/// booleans, finite numbers numbers, anything else a string.
+pub fn parse_csv(text: &str) -> Result<Value, String> {
+    let mut records: Vec<Vec<String>> = Vec::new();
+    let mut row: Vec<String> = Vec::new();
+    let mut field = String::new();
+    let mut quoted = false;
+    let mut chars = text.chars().peekable();
+    let mut any = false;
+    while let Some(c) = chars.next() {
+        any = true;
+        if quoted {
+            match c {
+                '"' if chars.peek() == Some(&'"') => {
+                    field.push('"');
+                    chars.next();
+                }
+                '"' => quoted = false,
+                _ => field.push(c),
+            }
+            continue;
+        }
+        match c {
+            '"' if field.is_empty() => quoted = true,
+            ',' => row.push(std::mem::take(&mut field)),
+            '\r' if chars.peek() == Some(&'\n') => {}
+            '\n' => {
+                row.push(std::mem::take(&mut field));
+                records.push(std::mem::take(&mut row));
+                any = false;
+            }
+            _ => field.push(c),
+        }
+    }
+    if quoted {
+        return Err("unterminated quoted field".into());
+    }
+    if any {
+        row.push(field);
+        records.push(row);
+    }
+    let mut records = records.into_iter();
+    let header = records.next().ok_or("empty CSV (no header row)")?;
+    let mut out = Vec::new();
+    for (i, cells) in records.enumerate() {
+        if cells.len() != header.len() {
+            return Err(format!(
+                "row {} has {} cells, the header has {}",
+                i + 2,
+                cells.len(),
+                header.len()
+            ));
+        }
+        let mut obj = Record::new();
+        for (key, cell) in header.iter().zip(cells) {
+            obj.insert(key.clone(), csv_cell(cell));
+        }
+        out.push(Value::Object(obj));
+    }
+    Ok(Value::Array(out))
+}
+
+fn csv_cell(cell: String) -> Value {
+    match cell.as_str() {
+        "" => Value::Null,
+        "true" => Value::Bool(true),
+        "false" => Value::Bool(false),
+        _ => match cell
+            .parse::<f64>()
+            .ok()
+            .filter(|n| n.is_finite())
+            .and_then(crate::js::number_value)
+        {
+            Some(n) if !cell.starts_with('+') && !cell.contains(['x', 'X']) => n,
+            _ => Value::String(cell),
+        },
     }
 }
 
@@ -342,17 +488,30 @@ fn chosen_inline<'p>(inline: &'p InlinePlan, params: &Record) -> Result<Option<&
     Ok(inline.forms.iter().find(|f| present(&f.param)))
 }
 
-/// Stdin text of an inline value: records and JSON as compact JSON, text as is.
-fn inline_text(kind: InlineKind, value: &Value) -> String {
-    match (kind, value) {
+/// Text of an inline value: records and JSON as compact JSON, text as is, TOML from an object.
+fn inline_text(kind: InlineKind, param: &str, value: &Value) -> Result<String, CliError> {
+    Ok(match (kind, value) {
         (InlineKind::Text, Value::String(text)) => text.clone(),
         (InlineKind::Text, other) => value_text(other),
+        (InlineKind::Toml, other) => toml::to_string(other).map_err(|e| {
+            CliError::new(
+                ErrorCode::ValidationError,
+                format!("{param} cannot be written as TOML: {e}"),
+            )
+            .with("param", Value::String(param.to_string()))
+        })?,
         (_, other) => serde_json::to_string(other).unwrap_or_default(),
-    }
+    })
 }
 
 /// The child's argv (with the overlay's root and JSON args) and the stdin of an inline input.
-fn child_call(plan: &OpPlan, overlay: &Overlay, params: &Record) -> Result<(Vec<String>, Option<String>), CliError> {
+fn child_call(
+    plan: &OpPlan,
+    overlay: &Overlay,
+    params: &Record,
+    temp: &Path,
+    materialize: bool,
+) -> Result<(Vec<String>, Option<String>), CliError> {
     let json: &[String] = if plan.legacy_json {
         &overlay.legacy_json_args
     } else {
@@ -362,14 +521,41 @@ fn child_call(plan: &OpPlan, overlay: &Overlay, params: &Record) -> Result<(Vec<
         Some(inline) => chosen_inline(inline, params)?.map(|form| (inline, form)),
         None => None,
     };
-    let stdin = form.map(|(_, f)| inline_text(f.kind, &params[&f.param]));
+    let mut params = params.clone();
+    if let Some(rf) = &plan.result_file {
+        let path = rf.name.as_deref().map_or_else(|| temp.to_path_buf(), |n| temp.join(n));
+        params.insert(rf.param.clone(), Value::String(path.to_string_lossy().into_owned()));
+    }
+    let mut stdin = None;
+    let mut token = String::new();
+    if let Some((inline, f)) = form {
+        let text = inline_text(f.kind, &f.param, &params[&f.param])?;
+        match (f.via, &f.file_name) {
+            (InlineVia::File, Some(name)) => {
+                let path = temp.join(name);
+                if materialize {
+                    std::fs::write(&path, text).map_err(|e| {
+                        CliError::new(
+                            ErrorCode::InternalError,
+                            format!("cannot write the inline {}: {e}", f.param),
+                        )
+                    })?;
+                }
+                token = path.to_string_lossy().into_owned();
+            }
+            _ => {
+                stdin = Some(text);
+                token = inline.token.clone();
+            }
+        }
+    }
     let inline = form.map(|(inline, f)| InlineArgs {
         target: &inline.target,
-        token: &inline.token,
+        token: &token,
         args: &f.args,
     });
     Ok((
-        build_argv(plan, params, &overlay.legacy_root_args, json, inline)?,
+        build_argv(plan, &params, &overlay.legacy_root_args, json, inline)?,
         stdin,
     ))
 }
@@ -647,6 +833,60 @@ mod tests {
         assert_eq!(stdin_text(&json!(["a", 1])).as_deref(), Some("a\n1\n"));
         assert_eq!(stdin_text(&json!("x")).as_deref(), Some("x"));
         assert_eq!(stdin_text(&Value::Null), None);
+    }
+
+    #[test]
+    fn csv_result_parsing() {
+        let v = parse_csv("a,b,c\r\n1,\"x,\"\"y\"\"\",\r\n-2.5,false,0x10\n").unwrap();
+        assert_eq!(
+            v,
+            json!([{"a": 1, "b": "x,\"y\"", "c": null}, {"a": -2.5, "b": false, "c": "0x10"}])
+        );
+        assert_eq!(
+            parse_csv("a\n+3\nNaN\ninf\n").unwrap(),
+            json!([{"a": "+3"}, {"a": "NaN"}, {"a": "inf"}])
+        );
+        assert_eq!(parse_csv("a,b\n").unwrap(), json!([]));
+        assert!(parse_csv("").unwrap_err().contains("no header"));
+        assert!(parse_csv("a,b\n1\n").unwrap_err().contains("row 2 has 1 cells"));
+        assert!(parse_csv("a\n\"open\n").unwrap_err().contains("unterminated"));
+    }
+
+    #[test]
+    fn result_file_and_file_inline_rules() {
+        let cmd = Command::new("t").subcommand(
+            Command::new("go")
+                .arg(Arg::new("out").long("out"))
+                .arg(Arg::new("many").long("many").action(ArgAction::Append))
+                .arg(Arg::new("config").long("config")),
+        );
+        let op = "[[op]]\nname = \"go_op\"\ncommand = \"go\"\naccess = \"read\"\n";
+        let err = |extra: &str| Overlay::parse(&format!("{op}{extra}")).unwrap_err();
+        assert!(
+            err("[op.result_file]\nparam = \"out\"\nname = \"../x\"\nformat = \"csv\"\n").contains("plain file name")
+        );
+        assert!(err("[op.result_file]\nparam = \"out\"\nformat = \"csv\"\n").contains("needs `read`"));
+        let form = "[inline_inputs.config]\n[[inline_inputs.config.form]]\nparam = \"spec\"\nkind = \"json\"\n";
+        assert!(err(&format!("{form}via = \"file\"\n")).contains("needs file_name"));
+        assert!(err(&format!("{form}file_name = \"a.json\"\n")).contains("needs via"));
+        assert!(err(&format!("{form}ops = [\"nope\"]\n")).contains("unknown op nope"));
+        let plan_err = |extra: &str| plans(&cmd, &Overlay::parse(&format!("{op}{extra}")).unwrap(), "t").unwrap_err();
+        assert!(
+            plan_err("[op.result_file]\nparam = \"nope\"\nname = \"r.csv\"\nformat = \"csv\"\n")
+                .contains("is not a clap arg")
+        );
+        assert!(
+            plan_err("[op.result_file]\nparam = \"many\"\nname = \"r.csv\"\nformat = \"csv\"\n")
+                .contains("single value")
+        );
+        let o = Overlay::parse(&format!("{op}[op.result_file]\nparam = \"out\"\nname = \"r.csv\"\nformat = \"csv\"\n{form}via = \"file\"\nfile_name = \"spec.json\"\n")).unwrap();
+        let p = plans(&cmd, &o, "t").unwrap().remove(0);
+        let bridge = Bridge::new(cmd.clone(), &format!("{op}[op.result_file]\nparam = \"out\"\nname = \"r.csv\"\nformat = \"csv\"\n{form}via = \"file\"\nfile_name = \"spec.json\"\n")).unwrap();
+        let argv = bridge
+            .child_argv(&p, json!({"spec": {"a": 1}}).as_object().unwrap())
+            .unwrap();
+        assert_eq!(argv, ["go", "--out=<tmp>/r.csv", "--config=<tmp>/spec.json"]);
+        assert!(p.schema.params.iter().all(|x| x.name != "out"));
     }
 
     #[test]

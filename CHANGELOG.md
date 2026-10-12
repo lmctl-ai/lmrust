@@ -16,8 +16,11 @@
 - Overlay `inline_inputs` (a file-like input may instead be given inline as `records`, `text` or `json`,
   piped to the child's stdin with the slot set to `-` and per-form args such as `--from json`; exactly one
   source per call) and `named_positionals` (clap positionals published as named params). Added for lmda.
+- Overlay `[op.result_file]` (the command's output-path arg is filled with a private temp path and the file it
+  writes, CSV/JSON/text, becomes the result; the temp dir is removed) and inline forms `via = "file"` with
+  `file_name`, `ops` and `kind = "toml"` (a config map written to a temp file). Added for lmsim.
 - Dependencies of the feature: clap 4.5 (`std` only; 4.5.x keeps the 1.79 MSRV, clap 4.6 needs
-  1.85) and toml 0.8. Default features and their dependencies are unchanged.
+  1.85) and toml 0.8 (`parse`, `display`). Default features and their dependencies are unchanged.
 
 ## 0.1.2
 

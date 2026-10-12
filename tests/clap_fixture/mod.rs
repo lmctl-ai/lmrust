@@ -70,6 +70,50 @@ access = "read"
 name = "sleep_for"
 command = "sleep"
 access = "read"
+
+[[op]]
+name = "report_rows"
+command = "report"
+access = "read"
+[op.result_file]
+param = "outputPath"
+name = "result.csv"
+format = "csv"
+
+[[op]]
+name = "report_summary"
+command = "report"
+access = "read"
+fixed_args = ["--sidecar"]
+[op.result_file]
+param = "outputPath"
+name = "r.csv"
+read = "r.csv.summary.json"
+format = "json"
+
+[[op]]
+name = "cfg_show"
+command = "cfgshow"
+access = "read"
+
+[[op]]
+name = "cfg_show_json"
+command = "cfgshow"
+access = "read"
+
+[inline_inputs.config]
+description = "Config file path, or settings/spec inline"
+[[inline_inputs.config.form]]
+param = "settings"
+kind = "toml"
+via = "file"
+file_name = "settings.toml"
+ops = ["cfg_show"]
+[[inline_inputs.config.form]]
+param = "spec"
+kind = "json"
+via = "file"
+file_name = "spec.json"
 "#;
 
 pub fn command() -> Command {
@@ -176,6 +220,23 @@ pub fn command() -> Command {
             ),
         )
         .subcommand(Command::new("serve").about("Not published"))
+        .subcommand(
+            Command::new("report")
+                .about("Write a CSV report to a file")
+                .arg(Arg::new("output_path").long("output-path").required(true))
+                .arg(
+                    Arg::new("rows")
+                        .long("rows")
+                        .value_parser(value_parser!(u32))
+                        .default_value("2"),
+                )
+                .arg(Arg::new("sidecar").long("sidecar").action(ArgAction::SetTrue)),
+        )
+        .subcommand(
+            Command::new("cfgshow")
+                .about("Echo a config file")
+                .arg(Arg::new("config").long("config").required(true)),
+        )
 }
 
 fn json_out(m: &ArgMatches, value: serde_json::Value) {
@@ -266,6 +327,27 @@ pub fn legacy_main(args: Vec<String>) -> i32 {
             json_out(m, serde_json::json!({"slept": true}));
         }
         Some(("serve", _)) => println!("serving"),
+        Some(("report", m)) => {
+            let path = std::path::PathBuf::from(m.get_one::<String>("output_path").unwrap());
+            let rows = *m.get_one::<u32>("rows").unwrap();
+            let mut text = String::from("x,label,y,flag,empty\n");
+            for i in 1..=rows {
+                text.push_str(&format!("{i},\"a, \"\"q\"\"\",{}.5,true,\n", i * 2));
+            }
+            std::fs::write(&path, text).unwrap();
+            if m.get_flag("sidecar") {
+                let mut name = path.file_name().unwrap().to_os_string();
+                name.push(".summary.json");
+                std::fs::write(path.with_file_name(name), format!("{{\"n\": {rows}}}")).unwrap();
+            }
+            eprintln!("wrote {}", path.display());
+        }
+        Some(("cfgshow", m)) => {
+            let path = std::path::PathBuf::from(m.get_one::<String>("config").unwrap());
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            let ext = path.extension().map(|e| e.to_string_lossy().into_owned());
+            println!("{}", serde_json::json!({"ext": ext, "text": text}));
+        }
         _ => {
             println!("fixtool legacy help");
         }

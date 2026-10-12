@@ -101,7 +101,11 @@ fn schema_is_deterministic_and_follows_lmapi() {
             "exit_with",
             "crash_now",
             "big_output",
-            "sleep_for"
+            "sleep_for",
+            "report_rows",
+            "report_summary",
+            "cfg_show",
+            "cfg_show_json"
         ],
         "overlay order"
     );
@@ -335,6 +339,104 @@ fn inline_tables_need_exactly_one_source() {
     );
 }
 
+// ---- result files and inline configs delivered as temp files -------------------------------
+
+fn result_files_become_the_result() {
+    let doc = serde_json::to_value(bridge().schema().unwrap()).unwrap();
+    let report = doc["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["name"] == "report_rows")
+        .unwrap()
+        .clone();
+    let names: Vec<&str> = report["params"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        ["rows", "sidecar"],
+        "the output path is supplied by the bridge, not published"
+    );
+    let run = fixtool(&["report_rows", "--rows", "3"]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert_eq!(
+        run.json,
+        json!([
+            {"x": 1, "label": "a, \"q\"", "y": 2.5, "flag": true, "empty": null},
+            {"x": 2, "label": "a, \"q\"", "y": 4.5, "flag": true, "empty": null},
+            {"x": 3, "label": "a, \"q\"", "y": 6.5, "flag": true, "empty": null}
+        ]),
+        "CSV rows with typed cells"
+    );
+    let run = fixtool(&["report_summary", "--rows", "4"]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert_eq!(
+        run.json,
+        json!({"n": 4}),
+        "a sidecar of the output file can be the result"
+    );
+    let leftovers: Vec<String> = std::fs::read_dir(std::env::temp_dir())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("lmrust-clap-bridge-") && n.contains(&format!("-{}-", std::process::id())))
+        .collect();
+    assert!(leftovers.is_empty(), "temp dirs removed: {leftovers:?}");
+}
+
+fn inline_configs_are_written_to_temp_files() {
+    let doc = serde_json::to_value(bridge().schema().unwrap()).unwrap();
+    let op = |n: &str| {
+        doc["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["name"] == n)
+            .unwrap()
+            .clone()
+    };
+    let names = |o: Value| {
+        o["params"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(op("cfg_show")), ["config", "settings", "spec"]);
+    assert_eq!(
+        names(op("cfg_show_json")),
+        ["config", "spec"],
+        "a form limited to other ops is not published here"
+    );
+    let run = fixtool(&[
+        "cfg_show",
+        "--input-json",
+        r#"{"settings":{"name":"a","run":{"seed":7,"end_time":10.5}}}"#,
+    ]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert_eq!(run.json["ext"], "toml");
+    let text = run.json["text"].as_str().unwrap();
+    assert!(
+        text.contains("name = \"a\"") && text.contains("[run]") && text.contains("seed = 7"),
+        "{text}"
+    );
+    let run = fixtool(&["cfg_show_json", "--input-json", r#"{"spec":{"seed":3,"levels":[1,2]}}"#]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert_eq!(run.json["ext"], "json");
+    assert_eq!(
+        serde_json::from_str::<Value>(run.json["text"].as_str().unwrap()).unwrap(),
+        json!({"seed": 3, "levels": [1, 2]})
+    );
+    let run = fixtool(&["cfg_show", "--input-json", r#"{"settings":{"bad":null}}"#]);
+    assert_eq!(run.code, 2, "TOML has no null: {}", run.stdout);
+    assert_eq!(run.json["error"]["code"], "VALIDATION_ERROR");
+}
+
 // ---- policy -----------------------------------------------------------------------------------
 
 fn dangerous_writes_follow_policy() {
@@ -548,6 +650,11 @@ fn main() {
         (
             "inline_tables_need_exactly_one_source",
             inline_tables_need_exactly_one_source,
+        ),
+        ("result_files_become_the_result", result_files_become_the_result),
+        (
+            "inline_configs_are_written_to_temp_files",
+            inline_configs_are_written_to_temp_files,
         ),
         ("dangerous_writes_follow_policy", dangerous_writes_follow_policy),
         ("exit_codes_map_to_lmapi_errors", exit_codes_map_to_lmapi_errors),

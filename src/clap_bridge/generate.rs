@@ -6,7 +6,7 @@
 //! parser: numbers, booleans, value enums), default and help text. The [`OpPlan`] also records
 //! how to turn validated params back into the legacy argv ([`super::legacy_argv`]).
 
-use super::overlay::{InlineKind, Overlay, OverlayAccess, OverlayOp};
+use super::overlay::{InlineKind, InlineVia, Overlay, OverlayAccess, OverlayOp, ResultFile};
 use crate::types::{Access, ItemType, Occurs, OperationSchema, ParamSpec, ParamType, ReturnType};
 use clap::{Arg, ArgAction, Command};
 use serde_json::Value;
@@ -75,6 +75,9 @@ pub struct InlineFormPlan {
     pub param: String,
     pub kind: InlineKind,
     pub args: Vec<String>,
+    pub via: InlineVia,
+    /// Temp file name when `via` is `File`.
+    pub file_name: Option<String>,
 }
 
 /// One published operation and how to run it through the legacy CLI.
@@ -92,6 +95,8 @@ pub struct OpPlan {
     pub legacy_json: bool,
     /// The op's inline-capable input, if any.
     pub inline: Option<InlinePlan>,
+    /// The op's data comes back through a file (overlay `result_file`).
+    pub result_file: Option<ResultFile>,
 }
 
 impl OpPlan {
@@ -439,6 +444,23 @@ pub(crate) fn plan(root: &Command, overlay: &Overlay, op: &OverlayOp, tool: &str
         }
     }
     let inline = inline_plan(overlay, op, &mut params, &bindings)?;
+    if let Some(rf) = &op.result_file {
+        let at = params.iter().position(|p| p.name == rf.param).ok_or_else(|| {
+            format!(
+                "op {}: result_file param {} is not a clap arg of `{}`",
+                op.name, rf.param, op.command
+            )
+        })?;
+        let b = &bindings[at];
+        if b.multi || b.kind != ValueKind::Value || b.slot == Slot::StdinOnly {
+            return Err(format!(
+                "op {}: result_file param {} must take a single value",
+                op.name, rf.param
+            ));
+        }
+        // Supplied by the bridge on every call: not published.
+        params.remove(at);
+    }
     if overlay.named_positionals {
         for spec in &mut params {
             spec.positional = None;
@@ -465,6 +487,7 @@ pub(crate) fn plan(root: &Command, overlay: &Overlay, op: &OverlayOp, tool: &str
         fixed_args,
         legacy_json: op.legacy_json,
         inline,
+        result_file: op.result_file.clone(),
     })
 }
 
@@ -491,12 +514,6 @@ fn inline_plan(
             ));
         }
     };
-    if bindings.iter().any(|b| b.stdin_token.is_some()) {
-        return Err(format!(
-            "op {}: inline input {} and a stdin param both need stdin",
-            op.name, target.param
-        ));
-    }
     if target.multi || target.kind != ValueKind::Value {
         return Err(format!(
             "op {}: inline input {} must be a single value",
@@ -504,6 +521,20 @@ fn inline_plan(
         ));
     }
     let inline = &overlay.inline_inputs[&target.param];
+    let applicable: Vec<_> = inline
+        .forms
+        .iter()
+        .filter(|f| f.ops.as_ref().map_or(true, |ops| ops.contains(&op.name)))
+        .collect();
+    if applicable.is_empty() {
+        return Ok(None);
+    }
+    if applicable.iter().any(|f| f.via == InlineVia::Stdin) && bindings.iter().any(|b| b.stdin_token.is_some()) {
+        return Err(format!(
+            "op {}: inline input {} and a stdin param both need stdin",
+            op.name, target.param
+        ));
+    }
     let spec = params.iter_mut().find(|p| p.name == target.param).expect("bound param");
     let required = spec.occurs.unwrap_or(Occurs::One) == Occurs::One;
     spec.occurs = Some(Occurs::Optional);
@@ -511,7 +542,7 @@ fn inline_plan(
         spec.description = inline.description.clone();
     }
     let mut forms = Vec::new();
-    for form in &inline.forms {
+    for form in applicable {
         if params.iter().any(|p| p.name == form.param) {
             return Err(format!(
                 "op {}: inline param {} clashes with a param of the op",
@@ -522,6 +553,7 @@ fn inline_plan(
             InlineKind::Records => ParamSpec::new(form.param.clone(), ParamType::Array).items(ItemType::Object),
             InlineKind::Text => ParamSpec::new(form.param.clone(), ParamType::String),
             InlineKind::Json => ParamSpec::new(form.param.clone(), ParamType::Json),
+            InlineKind::Toml => ParamSpec::new(form.param.clone(), ParamType::Object),
         }
         .occurs(Occurs::Optional);
         spec.description = form.description.clone();
@@ -530,6 +562,8 @@ fn inline_plan(
             param: form.param.clone(),
             kind: form.kind,
             args: form.args.clone(),
+            via: form.via,
+            file_name: form.file_name.clone(),
         });
     }
     Ok(Some(InlinePlan {

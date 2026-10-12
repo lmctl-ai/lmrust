@@ -107,6 +107,36 @@ pub struct OverlayOp {
     /// Per-param settings, by published (camelCase) name.
     #[serde(default)]
     pub params: BTreeMap<String, OverlayParam>,
+    /// The command writes its data to a file: the bridge passes a temp path and returns the file.
+    pub result_file: Option<ResultFile>,
+}
+
+/// An op whose data is written to a file named by one of its args (`--output-path`). The arg is not
+/// published; every call gets `<temp dir>/<name>` (or the temp dir itself when `name` is absent),
+/// and after a successful run `<temp dir>/<read or name>` is parsed as the result. The temp dir and
+/// everything the command wrote into it are removed afterwards.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResultFile {
+    /// Published (camelCase) name of the output-path arg.
+    pub param: String,
+    /// File name passed to the command (its extension may select the format); absent: the dir.
+    pub name: Option<String>,
+    /// The file to read as the result, when it is not `name` (a sidecar such as `x.summary.json`).
+    pub read: Option<String>,
+    pub format: ResultFormat,
+}
+
+/// How a result file is parsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ResultFormat {
+    /// RFC 4180 with a header row: an array of row objects; cells typed as number, boolean, null
+    /// (empty) or string.
+    Csv,
+    Json,
+    /// The file text under the overlay's `text_key`.
+    Text,
 }
 
 /// Settings of one op param.
@@ -154,6 +184,23 @@ pub struct InlineForm {
     #[serde(default)]
     pub args: Vec<String>,
     pub description: Option<String>,
+    /// How the value reaches the command: piped to stdin (default) or written to a temp file
+    /// whose path takes the input's argv slot (a tool that only reads config files).
+    #[serde(default)]
+    pub via: InlineVia,
+    /// Temp file name for `via = "file"` (its extension may select the format, e.g. `config.toml`).
+    pub file_name: Option<String>,
+    /// Published op names this form applies to (default: every op with the input).
+    pub ops: Option<Vec<String>>,
+}
+
+/// Delivery of an inline value.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InlineVia {
+    #[default]
+    Stdin,
+    File,
 }
 
 /// How an inline value is published and written to stdin.
@@ -166,6 +213,8 @@ pub enum InlineKind {
     Text,
     /// Any JSON value, written as compact JSON.
     Json,
+    /// A JSON object written as TOML (no nulls).
+    Toml,
 }
 
 fn dash() -> String {
@@ -194,6 +243,11 @@ fn default_max_stdout() -> usize {
 
 fn default_max_stderr() -> usize {
     64 * 1024
+}
+
+/// A plain file name: no separator, not `.`/`..`, not empty.
+fn is_file_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
 }
 
 /// lmapi identifier rule for published op names: snake_case ASCII.
@@ -243,6 +297,22 @@ impl Overlay {
             if op.params.values().filter(|p| p.stdin).count() > 1 {
                 out.push(format!("op {}: at most one stdin param", op.name));
             }
+            if let Some(rf) = &op.result_file {
+                for name in rf.name.iter().chain(&rf.read) {
+                    if !is_file_name(name) {
+                        out.push(format!(
+                            "op {}: result_file name {name:?} must be a plain file name",
+                            op.name
+                        ));
+                    }
+                }
+                if rf.name.is_none() && rf.read.is_none() {
+                    out.push(format!(
+                        "op {}: result_file passes a directory and needs `read`",
+                        op.name
+                    ));
+                }
+            }
         }
         for (input, inline) in &self.inline_inputs {
             if inline.forms.is_empty() {
@@ -252,6 +322,26 @@ impl Overlay {
             for form in &inline.forms {
                 if form.param == *input || !names.insert(form.param.as_str()) {
                     out.push(format!("inline_inputs.{input}: duplicate param {}", form.param));
+                }
+                match (&form.via, &form.file_name) {
+                    (InlineVia::File, None) => out.push(format!(
+                        "inline_inputs.{input}.{}: via = \"file\" needs file_name",
+                        form.param
+                    )),
+                    (InlineVia::File, Some(name)) if !is_file_name(name) => out.push(format!(
+                        "inline_inputs.{input}.{}: file_name must be a plain file name",
+                        form.param
+                    )),
+                    (InlineVia::Stdin, Some(_)) => out.push(format!(
+                        "inline_inputs.{input}.{}: file_name needs via = \"file\"",
+                        form.param
+                    )),
+                    _ => {}
+                }
+                for op in form.ops.iter().flatten() {
+                    if !self.ops.iter().any(|o| &o.name == op) {
+                        out.push(format!("inline_inputs.{input}.{}: unknown op {op}", form.param));
+                    }
                 }
             }
         }
