@@ -56,6 +56,14 @@ pub struct Overlay {
     pub max_stderr_bytes: usize,
     /// Kill the child after this many milliseconds (`TIMEOUT`, exit 7). Default: no deadline.
     pub timeout_ms: Option<u64>,
+    /// Publish clap positionals as named params (no `positional: true`): library-style calls
+    /// pass every value by name. The legacy argv still places them positionally.
+    #[serde(default)]
+    pub named_positionals: bool,
+    /// Inline alternatives for a file-like input, by published param name (e.g. `file`): every
+    /// op with that param also accepts the listed forms, piped to stdin (see [`InlineInput`]).
+    #[serde(default)]
+    pub inline_inputs: BTreeMap<String, InlineInput>,
     #[serde(rename = "op", default)]
     pub ops: Vec<OverlayOp>,
 }
@@ -117,6 +125,49 @@ pub struct OverlayParam {
     /// A param that is not a clap arg: an array of strings (occurs `+`), one line each on stdin.
     #[serde(default)]
     pub list: bool,
+}
+
+/// A file-like input that may instead be passed inline. The input param becomes optional; a call
+/// gives exactly one of the input or one of the forms. A form's value is piped to the child's
+/// stdin, the input's argv slot gets `token`, and the form's `args` are added (after the fixed
+/// args, before the JSON switch), e.g. `--from json`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InlineInput {
+    /// What the input's argv slot receives (default `-`).
+    #[serde(default = "dash")]
+    pub token: String,
+    #[serde(rename = "form", default)]
+    pub forms: Vec<InlineForm>,
+}
+
+/// One inline form of an [`InlineInput`].
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InlineForm {
+    /// Published param name (camelCase), added to every op that has the input.
+    pub param: String,
+    pub kind: InlineKind,
+    /// Legacy args telling the tool the stdin format (e.g. `["--from", "json"]`).
+    #[serde(default)]
+    pub args: Vec<String>,
+    pub description: Option<String>,
+}
+
+/// How an inline value is published and written to stdin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InlineKind {
+    /// An array of objects (table rows), written as one compact JSON array.
+    Records,
+    /// A string (CSV, TSV, ...), written as is.
+    Text,
+    /// Any JSON value, written as compact JSON.
+    Json,
+}
+
+fn dash() -> String {
+    "-".into()
 }
 
 fn yes() -> bool {
@@ -191,6 +242,17 @@ impl Overlay {
                 out.push(format!("op {}: at most one stdin param", op.name));
             }
         }
+        for (input, inline) in &self.inline_inputs {
+            if inline.forms.is_empty() {
+                out.push(format!("inline_inputs.{input}: no form"));
+            }
+            let mut names = std::collections::BTreeSet::new();
+            for form in &inline.forms {
+                if form.param == *input || !names.insert(form.param.as_str()) {
+                    out.push(format!("inline_inputs.{input}: duplicate param {}", form.param));
+                }
+            }
+        }
         for (arg, ops) in &self.only_for {
             for name in ops {
                 if !self.ops.iter().any(|op| &op.name == name) {
@@ -241,6 +303,29 @@ mod tests {
             err.contains("not an exit code") && err.contains("unknown lmapi error code NOPE"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn inline_input_rules() {
+        let o = Overlay::parse(&format!(
+            "named_positionals = true\n{OP}access = \"read\"\n[inline_inputs.file]\n[[inline_inputs.file.form]]\n\
+             param = \"records\"\nkind = \"records\"\nargs = [\"--from\", \"json\"]\n"
+        ))
+        .unwrap();
+        assert!(o.named_positionals);
+        assert_eq!(o.inline_inputs["file"].token, "-");
+        assert_eq!(o.inline_inputs["file"].forms[0].kind, InlineKind::Records);
+        let err = Overlay::parse(&format!("{OP}access = \"read\"\n[inline_inputs.file]\ntoken = \"-\"\n")).unwrap_err();
+        assert!(err.contains("inline_inputs.file: no form"), "{err}");
+        let err = Overlay::parse(&format!(
+            "{OP}access = \"read\"\n[inline_inputs.file]\n[[inline_inputs.file.form]]\nparam = \"file\"\nkind = \"text\"\n"
+        ))
+        .unwrap_err();
+        assert!(err.contains("duplicate param file"), "{err}");
+        assert!(Overlay::parse(&format!(
+            "{OP}access = \"read\"\n[inline_inputs.file]\n[[inline_inputs.file.form]]\nparam = \"x\"\nkind = \"rows\"\n"
+        ))
+        .is_err());
     }
 
     #[test]

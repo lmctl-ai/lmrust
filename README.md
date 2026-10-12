@@ -205,6 +205,10 @@ stdin = true                              # value piped to the child; its argv s
   `COMMAND_FAILED` (a Rust panic, 101, is `INTERNAL_ERROR`) with `data.tool_code = "EXIT_<n>"`,
   `data.legacy_exit_code`, `data.stderr` and the parsed stdout under `data.result`. A child
   killed by a signal is `INTERNAL_ERROR` / `SIGNALED`, even when it printed a result first.
+- **Inline tables**: `[inline_inputs.file]` with `[[inline_inputs.file.form]] param = "records", kind = "records",
+  args = ["--from", "json"]` lets every op that reads `file` take rows (or CSV text) inline instead of a path:
+  the value is piped to stdin and the slot gets `-`. `named_positionals = true` publishes clap positionals as
+  named params, so a library-style call passes `{file: ...}` or `{records: [...]}` by name.
 - **Policy**: write and dangerous ops follow `--dryrun`, `--readonly`, `--confirm` and the
   `<TOOL>_READONLY` / `<TOOL>_DRYRUN` env floors; a `dynamic` op is a write unless the tool
   registers `Bridge::dynamic_access(op, |params| ...)`.

@@ -35,6 +35,8 @@ Top level (all optional):
 | `max_stdout_bytes` | 16 MiB | more is `COMMAND_FAILED` / `OUTPUT_TOO_LARGE` |
 | `max_stderr_bytes` | 64 KiB | stderr beyond is dropped |
 | `timeout_ms` | none | kill the child, `TIMEOUT` (exit 7) |
+| `named_positionals` | `false` | publish clap positionals as named params (library-style calls); argv still positional |
+| `inline_inputs` | `{}` | `[inline_inputs.<param>]` + `[[inline_inputs.<param>.form]]`: a file-like input may be passed inline instead |
 
 `[[op]]`: `name` (snake_case, required), `command` (clap path, required), `access`
 (`read|write|dynamic`, REQUIRED: a missing access is a parse error, never read-only), `dangerous`
@@ -42,6 +44,16 @@ Top level (all optional):
 root-level arg is published), `legacy_json` (false: no JSON switch for this op),
 `[op.params.<publishedName>]` with `stdin`, `stdin_token` (default `-`, `""` = no argv slot),
 `description`, `list`.
+
+`[inline_inputs.<param>]`: `token` (default `-`, what the input's argv slot receives) and one or more
+`[[inline_inputs.<param>.form]]` with `param` (published name), `kind` (`records`: array of objects written as a
+compact JSON array; `text`: a string written as is; `json`: any value as compact JSON), `args` (legacy args naming
+the stdin format, e.g. `["--from", "json"]`) and `description`. Every op that has `<param>` gets the forms as
+optional params and `<param>` itself becomes optional; a call gives exactly one of them (`VALIDATION_ERROR`
+`give only one of ...` / `one of ... is required` when the clap arg was required). With a form, its value is
+piped to stdin, the input's slot gets the token and the form's args follow the fixed args (before the JSON
+switch). Plan errors: an op with two inline inputs, an inline input plus a stdin param, a multi-value input,
+a form name that clashes with an op param. This is how a script passes rows it computed without a temp file.
 
 ## Rules and decisions
 

@@ -40,8 +40,8 @@ mod generate;
 mod overlay;
 
 pub use coverage::{assert_coverage, coverage_problems};
-pub use generate::{camel, plans, Binding, OpPlan, Slot, ValueKind};
-pub use overlay::{Overlay, OverlayAccess, OverlayOp, OverlayParam};
+pub use generate::{camel, plans, Binding, InlineFormPlan, InlinePlan, OpPlan, Slot, ValueKind};
+pub use overlay::{InlineForm, InlineInput, InlineKind, Overlay, OverlayAccess, OverlayOp, OverlayParam};
 
 use crate::server::{
     check_policy, is_lmapi_invocation, print_error, run_cli_io, CheckContext, CliError, CliSpec, ErrorCode, OpDef,
@@ -233,7 +233,7 @@ impl Bridge {
     /// The full argv a call of `plan` passes to the executable: [`legacy_argv`] plus the
     /// overlay's `legacy_root_args` and `legacy_json_args`.
     pub fn child_argv(&self, plan: &OpPlan, params: &Record) -> Result<Vec<String>, CliError> {
-        argv_with_overlay(plan, &self.overlay, params)
+        Ok(child_call(plan, &self.overlay, params)?.0)
     }
 
     fn executable(&self) -> Result<PathBuf, CliError> {
@@ -258,7 +258,7 @@ impl Call {
     fn run(&self, params: &Record, policy: &Policy) -> Result<Value, CliError> {
         let bridge = &self.bridge;
         let plan = &self.plan;
-        let argv = argv_with_overlay(plan, &bridge.overlay, params)?;
+        let (argv, inline_stdin) = child_call(plan, &bridge.overlay, params)?;
         let access = match plan.access {
             Access::Dynamic => bridge
                 .dynamic
@@ -275,10 +275,11 @@ impl Call {
                 return Ok(Value::Object(simulated));
             }
         }
-        let stdin = plan
-            .stdin_binding()
-            .and_then(|b| params.get(&b.param))
-            .and_then(stdin_text);
+        let stdin = inline_stdin.or_else(|| {
+            plan.stdin_binding()
+                .and_then(|b| params.get(&b.param))
+                .and_then(stdin_text)
+        });
         let limits = child::Limits {
             max_stdout: bridge.overlay.max_stdout_bytes,
             max_stderr: bridge.overlay.max_stderr_bytes,
@@ -314,25 +315,96 @@ fn stdin_text(value: &Value) -> Option<String> {
 /// lists (`value_delimiter`) are joined into one argument; an item containing the delimiter is
 /// a `VALIDATION_ERROR`.
 pub fn legacy_argv(plan: &OpPlan, params: &Record) -> Result<Vec<String>, CliError> {
-    build_argv(plan, params, &[], &[])
+    build_argv(plan, params, &[], &[], None)
 }
 
-fn argv_with_overlay(plan: &OpPlan, overlay: &Overlay, params: &Record) -> Result<Vec<String>, CliError> {
+/// The inline form a call uses: `Ok(None)` when the input itself (or nothing optional) is given.
+/// Exactly one of the input and its forms may be present; one is needed when the input is required.
+fn chosen_inline<'p>(inline: &'p InlinePlan, params: &Record) -> Result<Option<&'p InlineFormPlan>, CliError> {
+    let present = |name: &str| params.get(name).is_some_and(|v| !v.is_null());
+    let names: Vec<&str> = std::iter::once(inline.target.as_str())
+        .chain(inline.forms.iter().map(|f| f.param.as_str()))
+        .collect();
+    let given: Vec<&str> = names.iter().copied().filter(|n| present(n)).collect();
+    if given.len() > 1 {
+        return Err(CliError::new(
+            ErrorCode::ValidationError,
+            format!("give only one of {} (got {})", names.join(", "), given.join(", ")),
+        )
+        .with("params", Value::from(given)));
+    }
+    if given.is_empty() && inline.required {
+        return Err(CliError::new(
+            ErrorCode::ValidationError,
+            format!("one of {} is required", names.join(", ")),
+        ));
+    }
+    Ok(inline.forms.iter().find(|f| present(&f.param)))
+}
+
+/// Stdin text of an inline value: records and JSON as compact JSON, text as is.
+fn inline_text(kind: InlineKind, value: &Value) -> String {
+    match (kind, value) {
+        (InlineKind::Text, Value::String(text)) => text.clone(),
+        (InlineKind::Text, other) => value_text(other),
+        (_, other) => serde_json::to_string(other).unwrap_or_default(),
+    }
+}
+
+/// The child's argv (with the overlay's root and JSON args) and the stdin of an inline input.
+fn child_call(plan: &OpPlan, overlay: &Overlay, params: &Record) -> Result<(Vec<String>, Option<String>), CliError> {
     let json: &[String] = if plan.legacy_json {
         &overlay.legacy_json_args
     } else {
         &[]
     };
-    build_argv(plan, params, &overlay.legacy_root_args, json)
+    let form = match &plan.inline {
+        Some(inline) => chosen_inline(inline, params)?.map(|form| (inline, form)),
+        None => None,
+    };
+    let stdin = form.map(|(_, f)| inline_text(f.kind, &params[&f.param]));
+    let inline = form.map(|(inline, f)| InlineArgs {
+        target: &inline.target,
+        token: &inline.token,
+        args: &f.args,
+    });
+    Ok((
+        build_argv(plan, params, &overlay.legacy_root_args, json, inline)?,
+        stdin,
+    ))
 }
 
-fn build_argv(plan: &OpPlan, params: &Record, root: &[String], json: &[String]) -> Result<Vec<String>, CliError> {
+/// The argv side of an inline input in use.
+struct InlineArgs<'a> {
+    target: &'a str,
+    token: &'a str,
+    args: &'a [String],
+}
+
+fn build_argv(
+    plan: &OpPlan,
+    params: &Record,
+    root: &[String],
+    json: &[String],
+    inline: Option<InlineArgs<'_>>,
+) -> Result<Vec<String>, CliError> {
     let mut argv: Vec<String> = root.to_vec();
     let mut positionals: Vec<(&Binding, Vec<String>)> = Vec::new();
     let mut greedy = false;
     for (level, word) in plan.words.iter().enumerate() {
         argv.push(word.clone());
         for b in plan.bindings.iter().filter(|b| b.level == level) {
+            if let Some(inline) = inline.as_ref().filter(|i| i.target == b.param) {
+                // The inline value goes to stdin; the input's slot gets the token (`-`).
+                let token = inline.token.to_string();
+                match &b.slot {
+                    Slot::Positional { .. } => positionals.push((b, vec![token])),
+                    Slot::Long(long) => argv.push(format!("--{long}={token}")),
+                    Slot::Short(short) => argv.extend([format!("-{short}"), token]),
+                    Slot::StdinOnly => {}
+                }
+                continue;
+            }
             let Some(value) = params.get(&b.param) else {
                 continue;
             };
@@ -413,6 +485,9 @@ fn build_argv(plan: &OpPlan, params: &Record, root: &[String], json: &[String]) 
         }
     }
     argv.extend(plan.fixed_args.iter().cloned());
+    if let Some(inline) = &inline {
+        argv.extend(inline.args.iter().cloned());
+    }
     argv.extend(json.iter().cloned());
     positionals.sort_by_key(|(b, _)| match b.slot {
         Slot::Positional { index, .. } => index,
@@ -420,8 +495,9 @@ fn build_argv(plan: &OpPlan, params: &Record, root: &[String], json: &[String]) 
     });
     let needs_separator = greedy
         || positionals.iter().any(|(b, vs)| {
+            let token_slot = b.stdin_token.is_some() || inline.as_ref().is_some_and(|i| i.target == b.param);
             matches!(b.slot, Slot::Positional { last: true, .. })
-                || vs.iter().any(|v| v.starts_with('-') && b.stdin_token.is_none())
+                || vs.iter().any(|v| v.starts_with('-') && !token_slot)
         });
     if needs_separator && !positionals.is_empty() {
         argv.push("--".into());

@@ -10,7 +10,7 @@ description = "Fixture tool for the clap bridge"
 drop_globals = ["format"]
 legacy_json_args = ["--format", "json"]
 excluded = ["serve"]
-exclude_params = ["format"]
+exclude_params = ["format", "from"]
 success_exit_codes = [0, 3]
 timeout_ms = 5000
 max_stdout_bytes = 4096
@@ -83,6 +83,13 @@ pub fn command() -> Command {
                 .value_parser(["text", "json"])
                 .default_value("text")
                 .help("Output format"),
+        )
+        .arg(
+            Arg::new("from")
+                .long("from")
+                .global(true)
+                .value_parser(["csv", "json"])
+                .help("Stdin format"),
         )
         .subcommand(
             Command::new("stats")
@@ -179,6 +186,14 @@ fn json_out(m: &ArgMatches, value: serde_json::Value) {
     }
 }
 
+fn stdin_if_dash(input: Option<&String>) -> Option<String> {
+    (input.map(String::as_str) == Some("-")).then(|| {
+        let mut text = String::new();
+        let _ = std::io::stdin().read_to_string(&mut text);
+        text
+    })
+}
+
 fn strings(m: &ArgMatches, id: &str) -> Vec<String> {
     m.get_many::<String>(id)
         .map(|v| v.cloned().collect())
@@ -201,6 +216,8 @@ pub fn legacy_main(args: Vec<String>) -> i32 {
             serde_json::json!({
                 "argv": argv,
                 "input": m.get_one::<String>("input"),
+                "stdin": stdin_if_dash(m.get_one::<String>("input")),
+                "from": m.get_one::<String>("from"),
                 "columns": strings(m, "columns"),
                 "tags": strings(m, "tag"),
                 "limit": m.get_one::<u32>("limit"),

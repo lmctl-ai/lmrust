@@ -13,6 +13,9 @@
   output caps, a deadline and the text-result key. A signal-killed child is `INTERNAL_ERROR`
   (`SIGNALED`), never a success. `assert_coverage` / `coverage_problems` check that every clap leaf is
   published or excluded and that no published name equals a legacy subcommand name or alias.
+- Overlay `inline_inputs` (a file-like input may instead be given inline as `records`, `text` or `json`,
+  piped to the child's stdin with the slot set to `-` and per-form args such as `--from json`; exactly one
+  source per call) and `named_positionals` (clap positionals published as named params). Added for lmda.
 - Dependencies of the feature: clap 4.5 (`std` only; 4.5.x keeps the 1.79 MSRV, clap 4.6 needs
   1.85) and toml 0.8. Default features and their dependencies are unchanged.
 

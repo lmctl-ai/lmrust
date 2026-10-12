@@ -257,6 +257,84 @@ fn stdin_params_are_piped_not_placed_in_argv() {
     assert_eq!(child_argv(&run), ["data", "lines", "--format", "json"]);
 }
 
+fn inline_bridge() -> Bridge {
+    let overlay = format!(
+        "named_positionals = true\n{}\n[inline_inputs.input]\n\
+         [[inline_inputs.input.form]]\nparam = \"records\"\nkind = \"records\"\nargs = [\"--from\", \"json\"]\n\
+         description = \"Rows as objects\"\n\
+         [[inline_inputs.input.form]]\nparam = \"csvText\"\nkind = \"text\"\nargs = [\"--from\", \"csv\"]\n\
+         description = \"CSV text\"\n",
+        clap_fixture::OVERLAY
+    );
+    Bridge::new(clap_fixture::command(), &overlay).expect("inline overlay")
+}
+
+fn inline_tables_are_piped_with_their_format_args() {
+    let bridge = inline_bridge();
+    let doc = serde_json::to_value(bridge.schema().unwrap()).unwrap();
+    let params = doc["operations"][0]["params"].as_array().unwrap();
+    let p = |n: &str| {
+        params
+            .iter()
+            .find(|p| p["name"] == n)
+            .unwrap_or_else(|| panic!("{n} in {params:?}"))
+            .clone()
+    };
+    assert_eq!(p("input")["occurs"], "?", "a path or an inline table");
+    assert!(
+        p("input").get("positional").is_none(),
+        "named_positionals publishes positionals as named params"
+    );
+    assert_eq!(p("records")["type"], "array");
+    assert_eq!(p("records")["items"], "object");
+    assert_eq!(p("records")["occurs"], "?");
+    assert_eq!(p("csvText")["type"], "string");
+    assert_eq!(p("csvText")["description"], "CSV text");
+    // Other ops are untouched by the inline input of `input`.
+    let load = doc["operations"][1]["params"].as_array().unwrap();
+    assert!(load.iter().all(|p| p["name"] != "records"));
+
+    let (code, out) = in_process(
+        &bridge,
+        &["stats_run", "--input-json", r#"{"records":[{"a":1},{"a":"x"}]}"#],
+    );
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["stdin"], r#"[{"a":1},{"a":"x"}]"#);
+    assert_eq!(out["from"], "json");
+    assert_eq!(out["argv"], json!(["stats", "--from", "json", "--format", "json", "-"]));
+    let (code, out) = in_process(&bridge, &["stats_run", "--csv-text", "a\n1\n"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["stdin"], "a\n1\n");
+    assert_eq!(out["from"], "csv");
+    let (code, out) = in_process(&bridge, &["stats_run", "--input", "p.csv"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["argv"], json!(["stats", "--format", "json", "p.csv"]));
+    assert_eq!(out["stdin"], Value::Null);
+}
+
+fn inline_tables_need_exactly_one_source() {
+    let bridge = inline_bridge();
+    let (code, out) = in_process(&bridge, &["stats_run", "--input", "p.csv", "--csv-text", "a\n1\n"]);
+    assert_eq!(code, 2, "{out}");
+    assert_eq!(out["error"]["code"], "VALIDATION_ERROR");
+    assert!(
+        out["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("only one of input, records, csvText"),
+        "{out}"
+    );
+    let (code, out) = in_process(&bridge, &["stats_run"]);
+    assert_eq!(code, 2, "{out}");
+    assert!(
+        out["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("one of input, records, csvText is required"),
+        "{out}"
+    );
+}
+
 // ---- policy -----------------------------------------------------------------------------------
 
 fn dangerous_writes_follow_policy() {
@@ -462,6 +540,14 @@ fn main() {
         (
             "stdin_params_are_piped_not_placed_in_argv",
             stdin_params_are_piped_not_placed_in_argv,
+        ),
+        (
+            "inline_tables_are_piped_with_their_format_args",
+            inline_tables_are_piped_with_their_format_args,
+        ),
+        (
+            "inline_tables_need_exactly_one_source",
+            inline_tables_need_exactly_one_source,
         ),
         ("dangerous_writes_follow_policy", dangerous_writes_follow_policy),
         ("exit_codes_map_to_lmapi_errors", exit_codes_map_to_lmapi_errors),

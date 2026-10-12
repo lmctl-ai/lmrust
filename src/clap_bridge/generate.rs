@@ -6,7 +6,7 @@
 //! parser: numbers, booleans, value enums), default and help text. The [`OpPlan`] also records
 //! how to turn validated params back into the legacy argv ([`super::legacy_argv`]).
 
-use super::overlay::{Overlay, OverlayAccess, OverlayOp};
+use super::overlay::{InlineKind, Overlay, OverlayAccess, OverlayOp};
 use crate::types::{Access, ItemType, Occurs, OperationSchema, ParamSpec, ParamType, ReturnType};
 use clap::{Arg, ArgAction, Command};
 use serde_json::Value;
@@ -57,6 +57,26 @@ pub struct Binding {
     pub stdin_token: Option<Option<String>>,
 }
 
+/// An op's file-like input that may be given inline (overlay `inline_inputs`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlinePlan {
+    /// Published name of the input param (e.g. `file`).
+    pub target: String,
+    /// The clap arg was required: a call must give the input or one form.
+    pub required: bool,
+    /// What the input's argv slot receives when a form is used (`-`).
+    pub token: String,
+    pub forms: Vec<InlineFormPlan>,
+}
+
+/// One inline form of an [`InlinePlan`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineFormPlan {
+    pub param: String,
+    pub kind: InlineKind,
+    pub args: Vec<String>,
+}
+
 /// One published operation and how to run it through the legacy CLI.
 #[derive(Debug, Clone)]
 pub struct OpPlan {
@@ -70,6 +90,8 @@ pub struct OpPlan {
     pub fixed_args: Vec<String>,
     /// Append the overlay's `legacy_json_args`.
     pub legacy_json: bool,
+    /// The op's inline-capable input, if any.
+    pub inline: Option<InlinePlan>,
 }
 
 impl OpPlan {
@@ -416,6 +438,12 @@ pub(crate) fn plan(root: &Command, overlay: &Overlay, op: &OverlayOp, tool: &str
             }
         }
     }
+    let inline = inline_plan(overlay, op, &mut params, &bindings)?;
+    if overlay.named_positionals {
+        for spec in &mut params {
+            spec.positional = None;
+        }
+    }
     let description = op
         .description
         .clone()
@@ -436,7 +464,77 @@ pub(crate) fn plan(root: &Command, overlay: &Overlay, op: &OverlayOp, tool: &str
         bindings,
         fixed_args,
         legacy_json: op.legacy_json,
+        inline,
     })
+}
+
+/// Apply `inline_inputs` to one op: the input becomes optional and the forms are added.
+fn inline_plan(
+    overlay: &Overlay,
+    op: &OverlayOp,
+    params: &mut Vec<ParamSpec>,
+    bindings: &[Binding],
+) -> Result<Option<InlinePlan>, String> {
+    let targets: Vec<&Binding> = bindings
+        .iter()
+        .filter(|b| b.slot != Slot::StdinOnly && overlay.inline_inputs.contains_key(&b.param))
+        .collect();
+    let target = match targets.as_slice() {
+        [] => return Ok(None),
+        [one] => *one,
+        many => {
+            let names: Vec<&str> = many.iter().map(|b| b.param.as_str()).collect();
+            return Err(format!(
+                "op {}: more than one inline input ({})",
+                op.name,
+                names.join(", ")
+            ));
+        }
+    };
+    if bindings.iter().any(|b| b.stdin_token.is_some()) {
+        return Err(format!(
+            "op {}: inline input {} and a stdin param both need stdin",
+            op.name, target.param
+        ));
+    }
+    if target.multi || target.kind != ValueKind::Value {
+        return Err(format!(
+            "op {}: inline input {} must be a single value",
+            op.name, target.param
+        ));
+    }
+    let inline = &overlay.inline_inputs[&target.param];
+    let spec = params.iter_mut().find(|p| p.name == target.param).expect("bound param");
+    let required = spec.occurs.unwrap_or(Occurs::One) == Occurs::One;
+    spec.occurs = Some(Occurs::Optional);
+    let mut forms = Vec::new();
+    for form in &inline.forms {
+        if params.iter().any(|p| p.name == form.param) {
+            return Err(format!(
+                "op {}: inline param {} clashes with a param of the op",
+                op.name, form.param
+            ));
+        }
+        let mut spec = match form.kind {
+            InlineKind::Records => ParamSpec::new(form.param.clone(), ParamType::Array).items(ItemType::Object),
+            InlineKind::Text => ParamSpec::new(form.param.clone(), ParamType::String),
+            InlineKind::Json => ParamSpec::new(form.param.clone(), ParamType::Json),
+        }
+        .occurs(Occurs::Optional);
+        spec.description = form.description.clone();
+        params.push(spec);
+        forms.push(InlineFormPlan {
+            param: form.param.clone(),
+            kind: form.kind,
+            args: form.args.clone(),
+        });
+    }
+    Ok(Some(InlinePlan {
+        target: target.param.clone(),
+        required,
+        token: inline.token.clone(),
+        forms,
+    }))
 }
 
 #[cfg(test)]
@@ -550,6 +648,53 @@ mod tests {
         assert!(plans(&toy(), &o, "toy").unwrap_err().contains("excluded"));
         let o = overlay("[[op]]\nname = \"s\"\ncommand = \"\"\naccess = \"read\"\n");
         assert!(plans(&toy(), &o, "toy").unwrap_err().contains("empty command"));
+    }
+
+    #[test]
+    fn inline_input_errors() {
+        let cmd = Command::new("t").subcommand(
+            Command::new("go")
+                .arg(Arg::new("left").required(true))
+                .arg(Arg::new("right").required(true))
+                .arg(Arg::new("many").long("many").action(ArgAction::Append))
+                .arg(Arg::new("records").long("records")),
+        );
+        let form = |input: &str, param: &str| {
+            format!("[inline_inputs.{input}]\n[[inline_inputs.{input}.form]]\nparam = \"{param}\"\nkind = \"text\"\n")
+        };
+        let op = "[[op]]\nname = \"go_op\"\ncommand = \"go\"\naccess = \"read\"\n";
+        let err = |extra: &str| plans(&cmd, &overlay(&format!("{op}{extra}")), "t").unwrap_err();
+        assert!(err(&format!("{}{}", form("left", "a"), form("right", "b")))
+            .contains("more than one inline input (left, right)"));
+        assert!(err(&form("many", "a")).contains("must be a single value"));
+        assert!(err(&form("left", "records")).contains("inline param records clashes"));
+        assert!(err(&format!("[op.params.right]\nstdin = true\n{}", form("left", "a"))).contains("both need stdin"));
+        let ok = plans(
+            &cmd,
+            &overlay(&format!("named_positionals = true\n{op}{}", form("left", "a"))),
+            "t",
+        )
+        .unwrap();
+        let inline = ok[0].inline.as_ref().unwrap();
+        assert_eq!(
+            (inline.target.as_str(), inline.required, inline.token.as_str()),
+            ("left", true, "-")
+        );
+        let doc = serde_json::to_value(&ok[0].schema).unwrap();
+        let left = doc["params"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "left")
+            .unwrap()
+            .clone();
+        assert_eq!(left["occurs"], "?", "the input is optional once it has inline forms");
+        assert!(doc["params"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p.get("positional").is_none()));
+        assert_eq!(doc["params"].as_array().unwrap().last().unwrap()["name"], "a");
     }
 
     #[test]
